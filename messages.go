@@ -18,6 +18,11 @@ type MessageParams struct {
 	// Files to attach, in Dify's file mapping shape — UploadedFile.Reference
 	// builds one.
 	Files []map[string]any
+	// WorkflowID pins a chatflow to a published version other than the
+	// current one.
+	WorkflowID string
+	// NoAutoName stops Dify naming a new conversation from its first turn.
+	NoAutoName bool
 	// KeepErrors yields an "error" event as an ordinary event instead of
 	// ending the stream with an *APIError. Streams only.
 	KeepErrors bool
@@ -48,6 +53,12 @@ func (m *Messages) body(query, mode string, p *MessageParams) (map[string]any, e
 	}
 	if p.Files != nil {
 		body["files"] = p.Files
+	}
+	if p.WorkflowID != "" {
+		body["workflow_id"] = p.WorkflowID
+	}
+	if p.NoAutoName {
+		body["auto_generate_name"] = false
 	}
 	return body, nil
 }

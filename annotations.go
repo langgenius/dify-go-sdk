@@ -93,13 +93,14 @@ func (a *Annotations) Delete(ctx context.Context, annotationID string) error {
 	return err
 }
 
-// ReplySettings configure annotation reply when enabling it.
+// ReplySettings configure annotation reply. Dify's payload model requires all
+// three fields on enable and on disable alike, so a disable has to name them
+// too; leaving them out answers 422.
 type ReplySettings struct {
-	EmbeddingModel    string
 	EmbeddingProvider string
+	EmbeddingModel    string
 	// ScoreThreshold is the similarity an annotation must reach to be used.
-	// Nil leaves it to Dify.
-	ScoreThreshold *float64
+	ScoreThreshold float64
 }
 
 func jobFrom(o object, id string) *AnnotationReplyJob {
@@ -112,18 +113,14 @@ func jobFrom(o object, id string) *AnnotationReplyJob {
 
 // SetReply turns annotation reply on or off. Enabling it re-embeds every
 // annotation, so Dify answers with a job; poll it with ReplyStatus.
-func (a *Annotations) SetReply(ctx context.Context, enabled bool, s *ReplySettings) (*AnnotationReplyJob, error) {
-	body := map[string]any{}
-	if s != nil {
-		if s.EmbeddingModel != "" {
-			body["embedding_model_name"] = s.EmbeddingModel
-		}
-		if s.EmbeddingProvider != "" {
-			body["embedding_provider_name"] = s.EmbeddingProvider
-		}
-		if s.ScoreThreshold != nil {
-			body["score_threshold"] = *s.ScoreThreshold
-		}
+func (a *Annotations) SetReply(ctx context.Context, enabled bool, s ReplySettings) (*AnnotationReplyJob, error) {
+	if s.EmbeddingProvider == "" || s.EmbeddingModel == "" {
+		return nil, argError("annotation reply needs EmbeddingProvider and EmbeddingModel, even to disable it: Dify validates the same payload for both")
+	}
+	body := map[string]any{
+		"embedding_provider_name": s.EmbeddingProvider,
+		"embedding_model_name":    s.EmbeddingModel,
+		"score_threshold":         s.ScoreThreshold,
 	}
 	o, err := a.t.call(ctx, &request{method: http.MethodPost, path: "/apps/annotation-reply/" + replyAction(enabled), body: body})
 	if err != nil {
