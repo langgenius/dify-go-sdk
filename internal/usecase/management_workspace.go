@@ -18,10 +18,22 @@ import (
 // off the app list, and an Agent publishes there rather than as a workflow.
 type Agents struct{ api port.Port }
 
-// List is every Agent in the workspace.
-func (ag *Agents) List(ctx context.Context) ([]*entity.AgentSummary, error) {
+// AgentListParams narrow the roster.
+type AgentListParams struct {
+	// PublicationStatus is "published" or "drafts"; empty lists both.
+	PublicationStatus string
+	// Name matches Agents whose name contains it.
+	Name string
+}
+
+// List is every Agent in the workspace, or those p narrows it to.
+func (ag *Agents) List(ctx context.Context, p *AgentListParams) ([]*entity.AgentSummary, error) {
+	if p == nil {
+		p = &AgentListParams{}
+	}
 	fetch := func(ctx context.Context, number int) (kernel.Object, error) {
-		return ag.api.Call(ctx, &port.Request{Method: http.MethodGet, Path: "/agent", Query: port.Params{}.SetInt("page", number).SetInt("limit", 100).Values()})
+		q := port.Params{}.SetInt("page", number).SetInt("limit", 100).Set("publication_status", p.PublicationStatus).Set("name", p.Name)
+		return ag.api.Call(ctx, &port.Request{Method: http.MethodGet, Path: "/agent", Query: q.Values()})
 	}
 	page, err := codec.FetchByPage(ctx, codec.AgentSummaryFrom, fetch, 1)
 	if err != nil {
@@ -32,7 +44,7 @@ func (ag *Agents) List(ctx context.Context) ([]*entity.AgentSummary, error) {
 
 // Retrieve finds one Agent by exact name.
 func (ag *Agents) Retrieve(ctx context.Context, name string) (*entity.AgentSummary, error) {
-	all, err := ag.List(ctx)
+	all, err := ag.List(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +74,7 @@ func (ag *Agents) Publish(ctx context.Context, agentID, versionNote string) (str
 // publishApp publishes the Agent behind an app, found on the roster by its
 // app id — which is all an import reports.
 func (ag *Agents) publishApp(ctx context.Context, appID string) (string, error) {
-	all, err := ag.List(ctx)
+	all, err := ag.List(ctx, nil)
 	if err != nil {
 		return "", err
 	}

@@ -54,7 +54,7 @@ func TestAConsoleRequestCarriesTheCSRFTokenOnReadsToo(t *testing.T) {
 	// Dify 1.17 checks the CSRF token on every method but OPTIONS, and it has
 	// to arrive twice — as a cookie and as a header that match. A client that
 	// sent it on writes only would find every listing refused.
-	f := newFakeDify(t, routes{"GET /apps": answer(200, map[string]any{"data": []any{}, "has_more": false})}.serve)
+	f := newConsole(t, routes{"GET /apps": answer(200, map[string]any{"data": []any{}, "has_more": false})})
 	if _, err := f.management(t).Apps.List(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestATokenFromTheEnvironmentIsSentUnderBothCookieSpellings(t *testing.T) {
 	// Behind https with no cookie domain, Dify names its cookies __Host-…
 	// and reads only that name. Which one a given Dify reads cannot be told
 	// from here, so a token handed in is sent under both.
-	f := newFakeDify(t, routes{"GET /apps": answer(200, map[string]any{"data": []any{}})}.serve)
+	f := newConsole(t, routes{"GET /apps": answer(200, map[string]any{"data": []any{}})})
 	if _, err := f.management(t).Apps.List(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestATokenFromTheEnvironmentIsSentUnderBothCookieSpellings(t *testing.T) {
 
 func TestLoggingInSendsTheirPasswordBase64AndKeepsTheCookiesItWasGiven(t *testing.T) {
 	var loginBody map[string]any
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"POST /login": func(w http.ResponseWriter, r *http.Request) {
 			// Behind https Dify prefixes the names; the client must send
 			// back exactly what it was given.
@@ -99,7 +99,7 @@ func TestLoggingInSendsTheirPasswordBase64AndKeepsTheCookiesItWasGiven(t *testin
 			writeJSON(w, 200, map[string]any{"result": "success", "data": nil})
 		},
 		"GET /apps": answer(200, map[string]any{"data": []any{}}),
-	}.serve)
+	})
 	m, err := dify.LoginManagement(context.Background(), "ops@example.com", "hunter2", dify.WithHost(f.URL))
 	if err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestLoggingInSendsTheirPasswordBase64AndKeepsTheCookiesItWasGiven(t *testin
 
 func TestALoginThatFindsNoWorkspaceIsRefusedWithDifysReason(t *testing.T) {
 	// Dify answers 200 here, with result "fail" and the reason as a string.
-	f := newFakeDify(t, routes{"POST /login": answer(200, map[string]any{"result": "fail", "data": "workspace not found, please contact system admin"})}.serve)
+	f := newConsole(t, routes{"POST /login": answer(200, map[string]any{"result": "fail", "data": "workspace not found, please contact system admin"})})
 	_, err := dify.LoginManagement(context.Background(), "ops@example.com", "pw", dify.WithHost(f.URL))
 	if !errors.Is(err, dify.ErrAuthentication) || !strings.Contains(err.Error(), "workspace not found") {
 		t.Errorf("got %v", err)
@@ -134,7 +134,7 @@ func TestALoginThatFindsNoWorkspaceIsRefusedWithDifysReason(t *testing.T) {
 
 func TestAnExpiredSessionIsRenewedOnceAndTheRequestSentAgain(t *testing.T) {
 	var refreshed atomic.Int32
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"POST /login": func(w http.ResponseWriter, r *http.Request) {
 			http.SetCookie(w, &http.Cookie{Name: "access_token", Value: "old"})
 			http.SetCookie(w, &http.Cookie{Name: "csrf_token", Value: "old-csrf"})
@@ -159,7 +159,7 @@ func TestAnExpiredSessionIsRenewedOnceAndTheRequestSentAgain(t *testing.T) {
 			}
 			writeJSON(w, 200, map[string]any{"data": []any{}})
 		},
-	}.serve)
+	})
 	m, err := dify.LoginManagement(context.Background(), "ops@example.com", "pw", dify.WithHost(f.URL))
 	if err != nil {
 		t.Fatal(err)
@@ -174,7 +174,7 @@ func TestAnExpiredSessionIsRenewedOnceAndTheRequestSentAgain(t *testing.T) {
 
 func TestASessionThatStaysRefusedAfterRenewingIsNotRenewedForever(t *testing.T) {
 	var refreshed, listed atomic.Int32
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"POST /login": func(w http.ResponseWriter, r *http.Request) {
 			http.SetCookie(w, &http.Cookie{Name: "access_token", Value: "a1"})
 			http.SetCookie(w, &http.Cookie{Name: "refresh_token", Value: "r1"})
@@ -189,7 +189,7 @@ func TestASessionThatStaysRefusedAfterRenewingIsNotRenewedForever(t *testing.T) 
 			listed.Add(1)
 			writeJSON(w, 401, map[string]any{"code": "unauthorized", "message": "Invalid token.", "status": 401})
 		},
-	}.serve)
+	})
 	m, err := dify.LoginManagement(context.Background(), "ops@example.com", "pw", dify.WithHost(f.URL))
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +209,7 @@ func TestASessionThatStaysRefusedAfterRenewingIsNotRenewedForever(t *testing.T) 
 func TestAMissingCSRFTokenIsExplainedRatherThanReportedAsABadToken(t *testing.T) {
 	// A flat 401 on a token that reads fine elsewhere sends people to mint a
 	// new token, which does not help: what is missing is the second one.
-	f := newFakeDify(t, routes{"GET /apps": answer(401, map[string]any{"code": "unauthorized", "message": "CSRF token is missing or invalid.", "status": 401})}.serve)
+	f := newConsole(t, routes{"GET /apps": answer(401, map[string]any{"code": "unauthorized", "message": "CSRF token is missing or invalid.", "status": 401})})
 	m, err := dify.NewManagement(dify.WithHost(f.URL), dify.WithConsoleToken("console-access-token-0001"))
 	if err != nil {
 		t.Fatal(err)
@@ -251,11 +251,11 @@ func TestCredentialsMeantForAnotherClientAreRefusedBeforeSending(t *testing.T) {
 }
 
 func TestADeployImportsPublishesAndMintsAKeyAsSeparateFacts(t *testing.T) {
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"POST /apps/imports":                           answer(200, map[string]any{"id": "imp-1", "status": "completed", "app_id": appUUID, "app_mode": "workflow"}),
 		"POST /apps/" + appUUID + "/workflows/publish": answer(200, map[string]any{"result": "success", "created_at": 1}),
 		"POST /apps/" + appUUID + "/api-keys":          answer(201, map[string]any{"id": "k1", "token": "app-minted-secret-1234", "type": "app"}),
-	}.serve)
+	})
 	d, err := f.management(t).Apps.Deploy(context.Background(), "app: {}", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -279,7 +279,7 @@ func TestADeployImportsPublishesAndMintsAKeyAsSeparateFacts(t *testing.T) {
 func TestAnImportDifyRefusedIsAStateNotAnError(t *testing.T) {
 	// Dify answers a failed import with 400 and the import's status in the
 	// body. Raising over it would lose the reason Dify gave.
-	f := newFakeDify(t, routes{"POST /apps/imports": answer(400, map[string]any{"id": "imp-1", "status": "failed", "error": "Missing app data in YAML content"})}.serve)
+	f := newConsole(t, routes{"POST /apps/imports": answer(400, map[string]any{"id": "imp-1", "status": "failed", "error": "Missing app data in YAML content"})})
 	d, err := f.management(t).Apps.Deploy(context.Background(), "nonsense", nil)
 	if err != nil {
 		t.Fatalf("a refusal is reported on the deployment: %v", err)
@@ -326,10 +326,10 @@ func TestAHeldImportWaitsForConfirmationUnlessTheCallerAcceptsTheVersion(t *test
 func TestConfirmingAnOverwriteDoesNotClaimTheAppWasCreated(t *testing.T) {
 	// Created is what makes deleting the app look safe. Confirming a held
 	// overwrite once reported the caller's own app as one this call made.
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"POST /apps/imports":               answer(202, map[string]any{"id": "imp-2", "status": "pending"}),
 		"POST /apps/imports/imp-2/confirm": answer(200, map[string]any{"id": "imp-2", "status": "completed", "app_id": appUUID}),
-	}.serve)
+	})
 	m := f.management(t)
 	held, _ := m.Apps.Import(context.Background(), "doc", &dify.ImportParams{AppID: appUUID})
 	done, _ := m.Apps.Confirm(context.Background(), held)
@@ -341,12 +341,12 @@ func TestConfirmingAnOverwriteDoesNotClaimTheAppWasCreated(t *testing.T) {
 func TestAnAgentPublishesOnTheRosterNotAsAWorkflow(t *testing.T) {
 	// /workflows/publish serves workflow and advanced-chat only; an Agent is
 	// published by its roster id, which the import does not report.
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"POST /apps/imports":                  answer(200, map[string]any{"id": "i", "status": "completed", "app_id": appUUID, "app_mode": "agent"}),
 		"GET /agent":                          answer(200, map[string]any{"data": []any{map[string]any{"id": "roster-7", "app_id": appUUID, "name": "helper"}}, "has_more": false}),
 		"POST /agent/roster-7/publish":        answer(200, map[string]any{"result": "success", "active_config_snapshot_id": "snap-3"}),
 		"POST /apps/" + appUUID + "/api-keys": answer(201, map[string]any{"id": "k", "token": "app-k"}),
-	}.serve)
+	})
 	d, _ := f.management(t).Apps.Deploy(context.Background(), "agent doc", nil)
 	if !d.Published || d.Version != "snap-3" || d.APIKey != "app-k" {
 		t.Errorf("deployment %+v", d)
@@ -359,10 +359,10 @@ func TestAnAgentPublishesOnTheRosterNotAsAWorkflow(t *testing.T) {
 }
 
 func TestAChatAppIsLiveOnImportAndIsNotPublished(t *testing.T) {
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"POST /apps/imports":                  answer(200, map[string]any{"id": "i", "status": "completed", "app_id": appUUID, "app_mode": "chat"}),
 		"POST /apps/" + appUUID + "/api-keys": answer(201, map[string]any{"id": "k", "token": "app-k"}),
-	}.serve)
+	})
 	d, _ := f.management(t).Apps.Deploy(context.Background(), "chat doc", nil)
 	if !d.Published || d.Err(dify.StageRunnable) != nil {
 		t.Errorf("a chat app has no draft to publish, so it is live: %+v", d)
@@ -370,10 +370,10 @@ func TestAChatAppIsLiveOnImportAndIsNotPublished(t *testing.T) {
 }
 
 func TestAFailedPublishLeavesAnImportedDraftToActOn(t *testing.T) {
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"POST /apps/imports":                           answer(200, map[string]any{"id": "i", "status": "completed", "app_id": appUUID, "app_mode": "workflow"}),
 		"POST /apps/" + appUUID + "/workflows/publish": answer(400, map[string]any{"code": "invalid_param", "message": "No valid workflow found.", "status": 400}),
-	}.serve)
+	})
 	d, _ := f.management(t).Apps.Deploy(context.Background(), "doc", nil)
 	if !d.Imported || d.Published || d.APIKey != "" || d.Indeterminate {
 		t.Errorf("deployment %+v", d)
@@ -390,12 +390,12 @@ func TestAnImportWhoseAnswerNeverArrivedIsUnknownNotFailed(t *testing.T) {
 	// The request was written and the connection dropped: Dify may have
 	// created the app. Reporting "not imported" would send the caller to
 	// deploy again, and leave a second app.
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"POST /apps/imports": func(w http.ResponseWriter, r *http.Request) {
 			conn, _, _ := w.(http.Hijacker).Hijack()
 			conn.Close()
 		},
-	}.serve)
+	})
 	d, err := f.management(t, dify.WithMaxRetries(0)).Apps.Deploy(context.Background(), "doc", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -411,7 +411,7 @@ func TestAnImportWhoseAnswerNeverArrivedIsUnknownNotFailed(t *testing.T) {
 func TestAnAppIsFoundByExactNameAcrossPages(t *testing.T) {
 	// Dify's name filter matches a substring, so the first match on the first
 	// page is not necessarily the app asked for.
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"GET /apps": func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Query().Get("page") == "2" {
 				writeJSON(w, 200, map[string]any{"data": []any{map[string]any{"id": "b", "name": "support", "mode": "chat"}}, "has_more": false, "page": 2})
@@ -419,7 +419,7 @@ func TestAnAppIsFoundByExactNameAcrossPages(t *testing.T) {
 			}
 			writeJSON(w, 200, map[string]any{"data": []any{map[string]any{"id": "a", "name": "support-old", "mode": "chat"}}, "has_more": true, "page": 1})
 		},
-	}.serve)
+	})
 	app, err := f.management(t).Apps.Retrieve(context.Background(), "support")
 	if err != nil || app.ID != "b" {
 		t.Errorf("got %v %v", app, err)
@@ -427,9 +427,9 @@ func TestAnAppIsFoundByExactNameAcrossPages(t *testing.T) {
 }
 
 func TestANameTwoAppsShareIsRefusedWithBothIDs(t *testing.T) {
-	f := newFakeDify(t, routes{"GET /apps": answer(200, map[string]any{"data": []any{
+	f := newConsole(t, routes{"GET /apps": answer(200, map[string]any{"data": []any{
 		map[string]any{"id": "a", "name": "bot"}, map[string]any{"id": "b", "name": "bot"},
-	}})}.serve)
+	}})})
 	_, err := f.management(t).Apps.Retrieve(context.Background(), "bot")
 	if err == nil || !strings.Contains(err.Error(), "a") || !strings.Contains(err.Error(), "b") {
 		t.Errorf("got %v", err)
@@ -437,7 +437,7 @@ func TestANameTwoAppsShareIsRefusedWithBothIDs(t *testing.T) {
 }
 
 func TestAnIDIsLookedUpRatherThanSearchedFor(t *testing.T) {
-	f := newFakeDify(t, routes{"GET /apps/" + appUUID: answer(200, map[string]any{"id": appUUID, "name": "x", "mode": "workflow"})}.serve)
+	f := newConsole(t, routes{"GET /apps/" + appUUID: answer(200, map[string]any{"id": appUUID, "name": "x", "mode": "workflow"})})
 	app, err := f.management(t).Apps.Retrieve(context.Background(), appUUID)
 	if err != nil || app.Mode != "workflow" || len(f.seen()) != 1 {
 		t.Errorf("got %v %v after %d requests", app, err, len(f.seen()))
@@ -448,10 +448,10 @@ func TestADraftRunsOnTheRouteItsModeIsServedOn(t *testing.T) {
 	events := func(w http.ResponseWriter, r *http.Request) {
 		writeSSE(w, map[string]any{"event": "workflow_finished", "workflow_run_id": "run-1", "data": map[string]any{"id": "run-1", "status": "succeeded", "outputs": map[string]any{"a": 1}}})
 	}
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"POST /apps/" + appUUID + "/workflows/draft/run":               events,
 		"POST /apps/" + appUUID + "/advanced-chat/workflows/draft/run": events,
-	}.serve)
+	})
 	m := f.management(t)
 	run, err := m.Apps.RunDraft(context.Background(), appUUID, map[string]any{"q": 1}, &dify.DraftRunParams{Mode: "workflow"})
 	if err != nil || !run.Succeeded() {
@@ -472,7 +472,7 @@ func TestADraftRunsOnTheRouteItsModeIsServedOn(t *testing.T) {
 }
 
 func TestTheOnlyPipelinesListedAreTheBasesWithOneBehindThem(t *testing.T) {
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"GET /datasets": func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Query().Get("page") == "2" {
 				writeJSON(w, 200, map[string]any{"data": []any{map[string]any{"id": "ds-2", "name": "docs 1", "pipeline_id": "pl-2", "is_published": true}}, "has_more": false})
@@ -480,7 +480,7 @@ func TestTheOnlyPipelinesListedAreTheBasesWithOneBehindThem(t *testing.T) {
 			}
 			writeJSON(w, 200, map[string]any{"data": []any{map[string]any{"id": "ds-1", "name": "by hand"}}, "has_more": true})
 		},
-	}.serve)
+	})
 	pipelines, err := f.management(t).Pipelines.List(context.Background())
 	if err != nil || len(pipelines) != 1 || pipelines[0].ID != "pl-2" || pipelines[0].DatasetID != "ds-2" || !pipelines[0].Published {
 		t.Errorf("got %v %v", pipelines, err)
@@ -488,11 +488,11 @@ func TestTheOnlyPipelinesListedAreTheBasesWithOneBehindThem(t *testing.T) {
 }
 
 func TestAPipelineDeployReportsBothIDs(t *testing.T) {
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"POST /rag/pipelines/imports":                answer(200, map[string]any{"id": "i", "status": "completed", "pipeline_id": "pl-1", "dataset_id": "ds-1"}),
 		"POST /rag/pipelines/pl-1/workflows/publish": answer(200, map[string]any{"result": "success"}),
 		"DELETE /datasets/ds-1":                      noContent,
-	}.serve)
+	})
 	m := f.management(t)
 	d, err := m.Pipelines.Deploy(context.Background(), "kind: rag_pipeline", nil)
 	if err != nil || !d.Published || d.PipelineID != "pl-1" || d.DatasetID != "ds-1" {
@@ -507,12 +507,12 @@ func TestAPipelineDeployReportsBothIDs(t *testing.T) {
 }
 
 func TestASkillIsPublishedAfterImportUnlessItIsADraft(t *testing.T) {
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"POST /workspaces/current/skills/import":       answer(201, map[string]any{"id": "sk-1", "name": "tidy"}),
 		"POST /workspaces/current/skills/sk-1/publish": answer(200, map[string]any{"version_number": 1}),
 		"GET /workspaces/current/skills":               answer(200, map[string]any{"data": []any{map[string]any{"id": "sk-1", "name": "tidy", "latest_published_version_number": 1}}, "has_more": false}),
 		"DELETE /workspaces/current/skills/sk-1":       answer(200, map[string]any{"id": "sk-1", "deleted": true}),
-	}.serve)
+	})
 	m := f.management(t)
 	skill, err := m.Skills.Import(context.Background(), dify.FileFromReader("tidy", strings.NewReader("zip")), nil)
 	if err != nil || !skill.Published() {
@@ -533,7 +533,7 @@ func TestASkillIsPublishedAfterImportUnlessItIsADraft(t *testing.T) {
 }
 
 func TestADatasetKeyCanBeLimitedToSomeKnowledgeBases(t *testing.T) {
-	f := newFakeDify(t, routes{"POST /datasets/api-keys": answer(200, map[string]any{"id": "k", "token": "dataset-abc", "type": "dataset"})}.serve)
+	f := newConsole(t, routes{"POST /datasets/api-keys": answer(200, map[string]any{"id": "k", "token": "dataset-abc", "type": "dataset"})})
 	m := f.management(t)
 	key, err := m.DatasetKeys.Create(context.Background(), "ds-1")
 	if err != nil || key.Token != "dataset-abc" {
@@ -569,11 +569,11 @@ func TestADeployedAppIsCalledOnTheSameDifysServiceAPI(t *testing.T) {
 
 func TestATemporaryAppThatCouldNotBePublishedIsDeletedBeforeTheErrorReturns(t *testing.T) {
 	var deleted atomic.Int32
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"POST /apps/imports":                           answer(200, map[string]any{"id": "i", "status": "completed", "app_id": appUUID, "app_mode": "workflow"}),
 		"POST /apps/" + appUUID + "/workflows/publish": answer(400, map[string]any{"message": "No valid workflow found."}),
 		"DELETE /apps/" + appUUID:                      func(w http.ResponseWriter, r *http.Request) { deleted.Add(1); w.WriteHeader(204) },
-	}.serve)
+	})
 	_, err := f.management(t).Apps.Temporary(context.Background(), "doc", "probe")
 	if err == nil || deleted.Load() != 1 {
 		t.Errorf("err %v, deleted %d", err, deleted.Load())
@@ -585,7 +585,7 @@ func TestATemporaryAppThatCouldNotBePublishedIsDeletedBeforeTheErrorReturns(t *t
 
 func TestASessionThatCannotBeRenewedSaysSoWithoutSendingAgain(t *testing.T) {
 	var listed atomic.Int32
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"POST /login": func(w http.ResponseWriter, r *http.Request) {
 			http.SetCookie(w, &http.Cookie{Name: "access_token", Value: "a1"})
 			http.SetCookie(w, &http.Cookie{Name: "refresh_token", Value: "r1"})
@@ -596,7 +596,7 @@ func TestASessionThatCannotBeRenewedSaysSoWithoutSendingAgain(t *testing.T) {
 			listed.Add(1)
 			writeJSON(w, 401, map[string]any{"code": "unauthorized", "message": "Token has expired.", "status": 401})
 		},
-	}.serve)
+	})
 	m, err := dify.LoginManagement(context.Background(), "ops@example.com", "pw", dify.WithHost(f.URL))
 	if err != nil {
 		t.Fatal(err)
@@ -642,7 +642,7 @@ func TestASessionFromADifyBefore117IsRenewedThroughTheBody(t *testing.T) {
 	// Before 1.17 the tokens travelled in JSON bodies, both ways. A refresh
 	// that sent the token only as a cookie and read the answer only from
 	// Set-Cookie failed an hour into every session.
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"POST /login": answer(200, map[string]any{"result": "success", "data": map[string]any{"access_token": "old", "refresh_token": "r1"}}),
 		"POST /refresh-token": func(w http.ResponseWriter, r *http.Request) {
 			if b := decodeBody(r); b["refresh_token"] != "r1" {
@@ -658,7 +658,7 @@ func TestASessionFromADifyBefore117IsRenewedThroughTheBody(t *testing.T) {
 			}
 			writeJSON(w, 200, map[string]any{"data": []any{}})
 		},
-	}.serve)
+	})
 	m, err := dify.LoginManagement(context.Background(), "ops@example.com", "pw", dify.WithHost(f.URL))
 	if err != nil {
 		t.Fatal(err)
@@ -671,7 +671,7 @@ func TestASessionFromADifyBefore117IsRenewedThroughTheBody(t *testing.T) {
 func TestPluginsAreWalkedPastAFullPageWhenDifyReportsNoTotal(t *testing.T) {
 	// A missing total once read as zero, ending the walk after 256 plugins
 	// and reporting the rest as not installed.
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"GET /workspaces/current/plugin/list": func(w http.ResponseWriter, r *http.Request) {
 			n := 256
 			if r.URL.Query().Get("page") == "2" {
@@ -683,7 +683,7 @@ func TestPluginsAreWalkedPastAFullPageWhenDifyReportsNoTotal(t *testing.T) {
 			}
 			writeJSON(w, 200, map[string]any{"plugins": plugins})
 		},
-	}.serve)
+	})
 	plugins, err := f.management(t).Tools.Plugins(context.Background())
 	if err != nil || len(plugins) != 257 {
 		t.Errorf("got %d plugins, %v", len(plugins), err)
@@ -691,11 +691,11 @@ func TestPluginsAreWalkedPastAFullPageWhenDifyReportsNoTotal(t *testing.T) {
 }
 
 func TestOpeningAWorkflowThatWasNeverPublishedDoesNotReportItRunnable(t *testing.T) {
-	f := newFakeDify(t, routes{
+	f := newConsole(t, routes{
 		"GET /apps/" + appUUID:                        answer(200, map[string]any{"id": appUUID, "name": "draft-only", "mode": "workflow"}),
 		"GET /apps/" + appUUID + "/workflows/publish": func(w http.ResponseWriter, r *http.Request) { writeRaw(w, 200, "null") },
 		"POST /apps/" + appUUID + "/api-keys":         answer(201, map[string]any{"id": "k", "token": "app-k"}),
-	}.serve)
+	})
 	app, err := f.management(t).Apps.Open(context.Background(), appUUID, "")
 	if err != nil {
 		t.Fatal(err)
@@ -705,5 +705,81 @@ func TestOpeningAWorkflowThatWasNeverPublishedDoesNotReportItRunnable(t *testing
 	}
 	if err := app.Deployment.Err(dify.StageRunnable); err == nil {
 		t.Error("a draft-only workflow cannot be run through the Service API")
+	}
+}
+
+func TestLoggingOutRevokesTheSessionAndRefusesWhatFollows(t *testing.T) {
+	var loggedOut atomic.Int32
+	f := newConsole(t, routes{
+		"POST /logout": func(w http.ResponseWriter, r *http.Request) {
+			// Dify finds the account from the session, so the cookies have
+			// to arrive with the logout.
+			if strings.Contains(r.Header.Get("Cookie"), "access_token=console-access-token-0001") {
+				loggedOut.Add(1)
+			}
+			writeJSON(w, 200, map[string]any{"result": "success"})
+		},
+	})
+	m := f.management(t)
+	if err := m.Logout(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if loggedOut.Load() != 1 {
+		t.Error("the logout did not carry the session it was ending")
+	}
+	sent := len(f.seen())
+	if _, err := m.Apps.List(context.Background(), nil); !errors.Is(err, dify.ErrValidation) || !strings.Contains(err.Error(), "logged out") {
+		t.Errorf("a request after logging out: %v", err)
+	}
+	if len(f.seen()) != sent {
+		t.Error("a logged-out session was sent anyway")
+	}
+	if access, csrf := m.SessionTokens(); access != "" || csrf != "" {
+		t.Error("a logged-out session still hands out its tokens")
+	}
+}
+
+func TestTheSessionTokensHandedOutAreTheRenewedOnes(t *testing.T) {
+	// A token read before a renewal and passed to another process would be
+	// the expired one.
+	f := newConsole(t, routes{
+		"POST /login": func(w http.ResponseWriter, r *http.Request) {
+			http.SetCookie(w, &http.Cookie{Name: "access_token", Value: "a1"})
+			http.SetCookie(w, &http.Cookie{Name: "csrf_token", Value: "c1"})
+			http.SetCookie(w, &http.Cookie{Name: "refresh_token", Value: "r1"})
+			writeJSON(w, 200, map[string]any{"result": "success"})
+		},
+		"POST /refresh-token": func(w http.ResponseWriter, r *http.Request) {
+			http.SetCookie(w, &http.Cookie{Name: "access_token", Value: "a2"})
+			http.SetCookie(w, &http.Cookie{Name: "csrf_token", Value: "c2"})
+			writeJSON(w, 200, map[string]any{"result": "success"})
+		},
+	})
+	m, err := dify.LoginManagement(context.Background(), "ops@example.com", "pw", dify.WithHost(f.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, c := m.SessionTokens(); a != "a1" || c != "c1" {
+		t.Errorf("before: %s %s", a, c)
+	}
+	if err := wire(usecase.ManagementPort(m)).ForceRefresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if a, c := m.SessionTokens(); a != "a2" || c != "c2" {
+		t.Errorf("after: %s %s", a, c)
+	}
+}
+
+func TestTagsFilterAnAppListingAsARepeatedParameter(t *testing.T) {
+	// Dify reads tag_ids with getlist and checks each is a UUID, so a
+	// comma-joined value is one invalid id rather than two tags.
+	f := newConsole(t, routes{"GET /apps": answer(200, map[string]any{"data": []any{}})})
+	_, err := f.management(t).Apps.List(context.Background(), &dify.AppListParams{TagIDs: []string{"t1", "t2"}, SortBy: "recently_created"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := f.last(t).Query
+	if len(q["tag_ids"]) != 2 || q["sort_by"][0] != "recently_created" {
+		t.Errorf("query %v", q)
 	}
 }

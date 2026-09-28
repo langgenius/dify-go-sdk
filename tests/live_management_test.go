@@ -1,13 +1,18 @@
 package tests
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	dify "github.com/langgenius/dify-go-sdk"
+	"github.com/langgenius/dify-go-sdk/internal/usecase"
 )
 
 // The harness deployed its fixtures with Management already, so what these
@@ -113,7 +118,7 @@ func TestLiveTheWorkspaceListingsAnswer(t *testing.T) {
 	// them depends on the workspace, so the test is that each one parses.
 	requireLive(t)
 	ctx, m := liveCtx(t), live.management
-	if _, err := m.Agents.List(ctx); err != nil {
+	if _, err := m.Agents.List(ctx, nil); err != nil {
 		t.Errorf("agents: %v", err)
 	}
 	if _, err := m.Pipelines.List(ctx); err != nil {
@@ -183,5 +188,177 @@ func TestLiveOpeningAPublishedWorkflowReportsItPublished(t *testing.T) {
 	}
 	if !app.Deployment.Published || app.Deployment.Err(dify.StageRunnable) != nil {
 		t.Errorf("the harness workflow is published, got %s", app.Deployment.Stage())
+	}
+}
+
+func readFixture(t *testing.T, name string) string {
+	t.Helper()
+	dsl, err := os.ReadFile("testdata/" + name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(dsl)
+}
+
+func TestLiveAPipelineDeploysIsListedExportedAndDeletedWithItsBase(t *testing.T) {
+	requireLive(t)
+	ctx, m := liveCtx(t), live.management
+	d, err := m.Pipelines.Deploy(ctx, readFixture(t, "pipeline.yml"), &dify.PipelineDeployParams{AcceptDSLVersion: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.DatasetID != "" {
+		defer m.Pipelines.Delete(context.Background(), d.DatasetID)
+	}
+	if err := d.Err(dify.StagePublished); err != nil {
+		t.Fatal(err)
+	}
+	if d.PipelineID == "" || d.DatasetID == "" {
+		t.Fatalf("a pipeline deploy reports both ids: %+v", d)
+	}
+	pipelines, err := m.Pipelines.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listed *dify.PipelineSummary
+	for _, p := range pipelines {
+		if p.ID == d.PipelineID {
+			listed = p
+		}
+	}
+	if listed == nil || listed.DatasetID != d.DatasetID || !listed.Published {
+		t.Errorf("the deployed pipeline is not listed as published: %+v", listed)
+	}
+	dsl, err := m.Pipelines.Export(ctx, d.PipelineID, false)
+	if err != nil || !strings.Contains(dsl, "rag_pipeline") {
+		t.Errorf("export: %v %.80q", err, dsl)
+	}
+	if err := m.Pipelines.Delete(ctx, d.DatasetID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLiveAWebhookTriggerIsMadeOnPublishAndCanBePaused(t *testing.T) {
+	requireLive(t)
+	ctx, m := liveCtx(t), live.management
+	d, err := m.Apps.Deploy(ctx, readFixture(t, "webhook.yml"), &dify.DeployParams{NoKey: true, AcceptDSLVersion: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Imported {
+		defer deleteApp(m, d.AppID)
+	}
+	if err := d.Err(dify.StagePublished); err != nil {
+		t.Fatal(err)
+	}
+	triggers, err := m.Apps.Triggers.List(ctx, d.AppID)
+	if err != nil || len(triggers) != 1 || triggers[0].Type != "trigger-webhook" || !triggers[0].Enabled() {
+		t.Fatalf("got %v %v", triggers, err)
+	}
+	hook, err := m.Apps.Triggers.Webhook(ctx, d.AppID, triggers[0].NodeID)
+	if err != nil || hook.WebhookID == "" || !strings.Contains(hook.URL, hook.WebhookID) {
+		t.Fatalf("webhook %+v %v", hook, err)
+	}
+	paused, err := m.Apps.Triggers.SetEnabled(ctx, d.AppID, triggers[0].ID, false)
+	if err != nil || paused.Enabled() {
+		t.Fatalf("pausing: %+v %v", paused, err)
+	}
+	resumed, err := m.Apps.Triggers.SetEnabled(ctx, d.AppID, triggers[0].ID, true)
+	if err != nil || !resumed.Enabled() {
+		t.Fatalf("resuming: %+v %v", resumed, err)
+	}
+}
+
+func TestLiveAnAgentPublishesOnTheRosterAndGetsAKey(t *testing.T) {
+	requireLive(t)
+	ctx, m := liveCtx(t), live.management
+	d, err := m.Apps.Deploy(ctx, readFixture(t, "agent.yml"), &dify.DeployParams{AcceptDSLVersion: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.Imported {
+		t.Skipf("this Dify would not import an Agent: %s", d.Error)
+	}
+	defer deleteApp(m, d.AppID)
+	if d.AppMode != "agent" {
+		t.Fatalf("mode %q", d.AppMode)
+	}
+	if err := d.Err(dify.StageRunnable); err != nil {
+		t.Fatal(err)
+	}
+	published, err := m.Agents.List(ctx, &dify.AgentListParams{PublicationStatus: "published"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, a := range published {
+		found = found || (a.AppID == d.AppID && a.Published)
+	}
+	if !found {
+		t.Error("the deployed Agent is not on the roster as published")
+	}
+	// Why the mode has to be read: this is the route an Agent is refused on.
+	if err := m.Apps.Publish(ctx, d.AppID); err == nil {
+		t.Error("Dify published an Agent as a workflow")
+	}
+}
+
+func TestLiveASkillIsImportedPublishedAndDeleted(t *testing.T) {
+	requireLive(t)
+	ctx, m := liveCtx(t), live.management
+	name := fmt.Sprintf("%s-skill-%d", harnessPrefix, time.Now().UnixNano()%1_000_000)
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, _ := zw.Create("SKILL.md")
+	fmt.Fprintf(w, "---\nname: %s\ndescription: A skill the Go SDK harness imports and deletes.\n---\n\nSay hello.\n", name)
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	skill, err := m.Skills.Import(ctx, dify.FileFromReader(name, &buf), nil)
+	if skill != nil && skill.ID != "" {
+		defer m.Skills.Delete(context.Background(), skill.ID, skill.DisplayName)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skill.Name != name || !skill.Published() {
+		t.Fatalf("imported %+v", skill)
+	}
+	if found, err := m.Skills.Retrieve(ctx, name); err != nil || found.ID != skill.ID {
+		t.Fatalf("retrieve: %v %v", found, err)
+	}
+	if err := m.Skills.Delete(ctx, skill.ID, ""); err != nil {
+		t.Fatalf("an unreferenced skill needs no confirmation: %v", err)
+	}
+	if _, err := m.Skills.Retrieve(ctx, name); err == nil {
+		t.Error("a deleted skill is still listed")
+	}
+}
+
+func TestLiveASessionRenewsWithItsRefreshTokenAndEndsOnLogout(t *testing.T) {
+	requireLive(t)
+	ctx := liveCtx(t)
+	// A session of its own: logging out ends the account's refresh token,
+	// which the harness's session must not depend on.
+	m, err := dify.LoginManagement(ctx, os.Getenv("DIFY_CONSOLE_EMAIL"), os.Getenv("DIFY_CONSOLE_PASSWORD"), dify.WithHost(live.host))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := m.SessionTokens()
+	if err := wire(usecase.ManagementPort(m)).ForceRefresh(ctx); err != nil {
+		t.Fatalf("renewing through /refresh-token: %v", err)
+	}
+	after, csrf := m.SessionTokens()
+	if after == before || csrf == "" {
+		t.Fatal("the renewal did not replace the tokens")
+	}
+	if _, err := m.Apps.List(ctx, nil); err != nil {
+		t.Fatalf("the renewed session was refused: %v", err)
+	}
+	if err := m.Logout(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Apps.List(ctx, nil); !errors.Is(err, dify.ErrValidation) {
+		t.Errorf("a logged-out session was used: %v", err)
 	}
 }

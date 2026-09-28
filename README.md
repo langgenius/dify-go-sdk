@@ -144,8 +144,11 @@ since that app may exist. `Apps.Import`, `Publish`, `Confirm` and `RunDraft`
 `m.Apps.Keys`, `m.Apps.Triggers`, `m.Agents`, `m.Pipelines`, `m.Models`,
 `m.Tools`, `m.Skills` and `m.DatasetKeys` cover the rest.
 
-A session from `LoginManagement` is renewed when it expires. `NewManagement`
-takes one as tokens instead — `DIFY_CONSOLE_TOKEN` and, since Dify 1.17,
+A session from `LoginManagement` is renewed when it expires, and is the
+credential to the whole account for as long as its refresh token lasts —
+30 days by default — so end it with `m.Logout(ctx)` when done.
+`m.SessionTokens()` hands the current tokens to another process; `NewManagement`
+takes them back as `DIFY_CONSOLE_TOKEN` and, since Dify 1.17,
 `DIFY_CONSOLE_CSRF_TOKEN`, which every console request needs, reads included.
 
 ## Listings

@@ -96,6 +96,24 @@ func (s *session) apply(req *http.Request) string {
 	return s.access
 }
 
+func (s *session) tokens() (string, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.access, s.csrf
+}
+
+func (s *session) forget() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.access, s.csrf, s.refresh = "", "", ""
+}
+
+func (s *session) forgotten() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.access == ""
+}
+
 func (s *session) masked() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -369,4 +387,26 @@ func (t *Transport) ServiceTransportFor(apiKey, user string) *Transport {
 		logger:     t.logger,
 		Sleep:      t.Sleep,
 	}
+}
+
+// Tokens are the console session's access and CSRF tokens as they stand.
+func (t *Transport) Tokens() (access, csrf string) {
+	if t.session == nil {
+		return "", ""
+	}
+	return t.session.tokens()
+}
+
+// Forget drops the console session.
+func (t *Transport) Forget() {
+	if t.session != nil {
+		t.session.forget()
+	}
+}
+
+// ForceRefresh renews the session now rather than on a 401, for a test that
+// cannot wait an hour for the token to expire.
+func (t *Transport) ForceRefresh(ctx context.Context) error {
+	access, _ := t.Tokens()
+	return t.refresh(ctx, access)
 }

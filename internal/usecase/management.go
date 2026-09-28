@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/langgenius/dify-go-sdk/internal/codec"
@@ -28,7 +29,8 @@ import (
 // renewed when it expires; one from tokens is not, since a login is what
 // hands out the refresh token.
 type Management struct {
-	api port.Port
+	api     port.Port
+	session port.Session
 	// openApp builds an App on the same Dify, keyed with a Service-API key.
 	// Wired by the root, which is the one place that knows how.
 	openApp func(apiKey, user string) (*App, error)
@@ -53,8 +55,8 @@ type Management struct {
 }
 
 // NewManagementOn builds a Management whose every resource sends through api.
-func NewManagementOn(api port.Port, openApp func(apiKey, user string) (*App, error)) *Management {
-	m := &Management{api: api, openApp: openApp}
+func NewManagementOn(api port.Port, session port.Session, openApp func(apiKey, user string) (*App, error)) *Management {
+	m := &Management{api: api, session: session, openApp: openApp}
 	m.Agents = &Agents{api: api}
 	m.Apps = &Apps{api: api, m: m, Keys: &AppKeys{api: api}, Triggers: &Triggers{api: api}}
 	m.Pipelines = &Pipelines{api: api}
@@ -78,6 +80,26 @@ func (m *Management) String() string {
 
 // GoString keeps %#v from printing the token.
 func (m *Management) GoString() string { return m.String() }
+
+// SessionTokens are the console session's access and CSRF tokens as they
+// stand, renewed ones included — for handing the session to another process
+// through DIFY_CONSOLE_TOKEN and DIFY_CONSOLE_CSRF_TOKEN. They are the
+// credential to the whole account; treat them as the password.
+func (m *Management) SessionTokens() (accessToken, csrfToken string) { return m.session.Tokens() }
+
+// Logout ends the session: Dify revokes its refresh token, and this client
+// refuses every later request. The access token itself stays valid until it
+// expires — Dify checks it by signature alone — so a token already handed to
+// another process keeps working for up to an hour.
+//
+// A session from LoginManagement is the credential to the whole account for
+// as long as its refresh token lasts, 30 days by default; logging out when
+// done is what makes it last only as long as the program.
+func (m *Management) Logout(ctx context.Context) error {
+	_, err := m.api.Call(ctx, &port.Request{Method: http.MethodPost, Path: "/logout"})
+	m.session.Forget()
+	return err
+}
 
 // AppClient is an App on the same Dify, keyed with a Service-API key — the one
 // a deploy minted, most often. user is the default end-user identifier.

@@ -194,6 +194,9 @@ func (t *Transport) send(ctx context.Context, r *port.Request) (*http.Response, 
 	if err != nil {
 		return nil, nil, err
 	}
+	if !r.NoAuth && t.session != nil && t.session.forgotten() {
+		return nil, nil, kernel.ArgError("this console session was logged out; log in again with dify.LoginManagement")
+	}
 	var key string
 	if !r.NoAuth && t.session == nil {
 		if key, err = t.Key.reveal(ctx); err != nil {

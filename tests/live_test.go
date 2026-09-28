@@ -127,18 +127,38 @@ func deleteApp(m *dify.Management, appID string) {
 	}
 }
 
-// sweep deletes harness apps a crashed earlier run left behind.
+// sweep deletes what a crashed earlier run left behind: apps, Agents,
+// pipelines (through their knowledge bases) and skills, found by the prefix.
 func sweep(ctx context.Context, m *dify.Management) {
-	page, err := m.Apps.List(ctx, &dify.AppListParams{Limit: 100, Name: harnessPrefix})
-	if err != nil {
-		return
-	}
-	for app, err := range page.All(ctx) {
-		if err != nil {
-			return
+	if page, err := m.Apps.List(ctx, &dify.AppListParams{Limit: 100, Name: harnessPrefix}); err == nil {
+		for app, err := range page.All(ctx) {
+			if err != nil {
+				break
+			}
+			if strings.HasPrefix(app.Name, harnessPrefix) {
+				deleteApp(m, app.ID)
+			}
 		}
-		if strings.HasPrefix(app.Name, harnessPrefix) {
-			deleteApp(m, app.ID)
+	}
+	if agents, err := m.Agents.List(ctx, &dify.AgentListParams{Name: harnessPrefix}); err == nil {
+		for _, a := range agents {
+			if strings.HasPrefix(a.Name, harnessPrefix) {
+				deleteApp(m, a.AppID)
+			}
+		}
+	}
+	if pipelines, err := m.Pipelines.List(ctx); err == nil {
+		for _, p := range pipelines {
+			if strings.HasPrefix(p.Name, harnessPrefix) {
+				_ = m.Pipelines.Delete(ctx, p.DatasetID)
+			}
+		}
+	}
+	if skills, err := m.Skills.List(ctx); err == nil {
+		for _, s := range skills {
+			if strings.HasPrefix(s.Name, harnessPrefix) {
+				_ = m.Skills.Delete(ctx, s.ID, s.DisplayName)
+			}
 		}
 	}
 }

@@ -89,7 +89,7 @@ func LoginManagement(ctx context.Context, email, password string, opts ...Option
 }
 
 func managementOn(t *infra.Transport) *Management {
-	return usecase.NewManagementOn(t, func(apiKey, user string) (*App, error) {
+	return usecase.NewManagementOn(t, t, func(apiKey, user string) (*App, error) {
 		return usecase.NewAppOn(t.ServiceTransportFor(apiKey, user)), nil
 	})
 }

@@ -53,6 +53,15 @@ The console departs from the Python SDK in more places, each read off the
 - **A failed import answers 400 with the import's status in the body**, and a
   held one 202. Both are states on the `Deployment`, not errors.
 
+Two tests keep the console honest without a server. `tests/routes_test.go`
+holds `consoleRoutes`, every route Management sends to, spelled as Dify
+registers it: the console fakes fail on a request not in it, and it is
+checked against the controllers in `../dify-oss` (or `DIFY_OSS_DIR`) — path
+and method — whenever a checkout is there. A new console call adds its route
+to the table after reading the controller. `tests/architecture_test.go`
+fails when the root's API hands out an internal type `dify.go` does not
+alias.
+
 ## Commands
 
 ```bash
@@ -68,8 +77,10 @@ deploys the fixture apps in `tests/testdata/` with `Management.Apps.Deploy`
 (template nodes only, so runs cost nothing), mints a dataset key with
 `Management.DatasetKeys`, and deletes everything at the end —
 including leftovers from a crashed run, found by the `sdk-go-harness` prefix.
-To regenerate a fixture, build it with the Python SDK's `tests/live/conftest.py`
-helpers and `wf.to_yaml()`.
+To regenerate a fixture, build it with the Python SDK's builders and
+`to_yaml()` — `Workflow` for `workflow.yml`, `chatflow.yml` and `webhook.yml`,
+`Pipeline` for `pipeline.yml`, `Agent` for `agent.yml` — the way its
+`tests/live/` builds the same ones. None of them calls a model.
 
 ## Shape of the package
 

@@ -752,6 +752,9 @@ type ManagedApp = usecase.ManagedApp
 // off the app list, and an Agent publishes there rather than as a workflow.
 type Agents = usecase.Agents
 
+// AgentListParams narrow the roster.
+type AgentListParams = usecase.AgentListParams
+
 // Pipelines are the workspace's knowledge pipelines.
 //
 // A pipeline is not an app: Dify serves it from /rag/pipelines, its DSL is

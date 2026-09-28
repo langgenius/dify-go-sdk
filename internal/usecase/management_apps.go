@@ -42,6 +42,11 @@ type AppListParams struct {
 	Name string
 	// CreatedByMe keeps only the apps this account created.
 	CreatedByMe bool
+	// TagIDs keeps only the apps carrying all of these tags.
+	TagIDs []string
+	// SortBy is last_modified (Dify's default), recently_created or
+	// earliest_created.
+	SortBy string
 }
 
 // List lists the workspace's apps. Agents are listed on their own, by Agents.
@@ -50,7 +55,7 @@ func (a *Apps) List(ctx context.Context, p *AppListParams) (*codec.Page[*entity.
 		p = &AppListParams{}
 	}
 	fetch := func(ctx context.Context, number int) (kernel.Object, error) {
-		q := port.Params{}.SetInt("page", number).SetInt("limit", p.Limit).Set("mode", p.Mode).Set("name", p.Name)
+		q := port.Params{}.SetInt("page", number).SetInt("limit", p.Limit).Set("mode", p.Mode).Set("name", p.Name).Set("sort_by", p.SortBy).Add("tag_ids", p.TagIDs...)
 		if p.CreatedByMe {
 			q.SetBool("is_created_by_me", true)
 		}
@@ -139,7 +144,7 @@ func (a *Apps) published(ctx context.Context, app *entity.AppSummary) (bool, err
 		}
 		return codec.PublishedWorkflowFrom(o), nil
 	case "agent":
-		agents, err := a.m.Agents.List(ctx)
+		agents, err := a.m.Agents.List(ctx, nil)
 		if err != nil {
 			return false, err
 		}
