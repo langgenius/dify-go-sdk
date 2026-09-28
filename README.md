@@ -3,7 +3,7 @@
 A Go client for Dify's Service API — running apps, and managing knowledge
 bases. A port of the Service-API half of
 [dify-python-sdk](https://github.com/langgenius/dify-python-sdk), verified
-against Dify 1.17.1. Go 1.23+, no dependencies beyond the standard library.
+against Dify 1.17.1. Go 1.24+, no dependencies beyond the standard library.
 
 ```bash
 go get github.com/langgenius/dify-go-sdk
