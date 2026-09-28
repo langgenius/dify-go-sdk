@@ -1,0 +1,39 @@
+name: Bug report
+description: The SDK sends, reads or does something wrong
+labels:
+  - bug
+body:
+  - type: checkboxes
+    attributes:
+      label: Self checks
+      options:
+        - label: I have searched existing issues, including closed ones.
+          required: true
+        - label: I am writing in English.
+          required: true
+  - type: input
+    attributes:
+      label: SDK version
+      description: The version in go.mod, or `dify.Version()`.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Dify version
+      description: "`dify.Probe(ctx, baseURL)` reports it, and every `*APIError` carries it."
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Cloud or self-hosted
+      options:
+        - Cloud
+        - Self-hosted
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What happened, and what you expected
+      description: A minimal program that reproduces it, if you can. Leave out keys and tokens.
+    validations:
+      required: true

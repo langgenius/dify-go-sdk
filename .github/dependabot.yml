@@ -1,0 +1,9 @@
+version: 2
+
+# The module has no dependencies beyond the standard library, so the workflows
+# are the only thing to keep current.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "\U0001F510 Security vulnerabilities"
+    url: https://github.com/langgenius/dify-go-sdk/security/advisories/new
+    about: Report vulnerabilities privately through GitHub Security Advisories, not in a public issue.
+  - name: "\U0001F41E A bug in Dify itself"
+    url: https://github.com/langgenius/dify/issues/new/choose
+    about: When the server misbehaves whichever client calls it, report it to Dify.
+  - name: "\U0001F4AC Questions and discussion"
+    url: https://github.com/langgenius/dify/discussions/categories/general
+    about: Ask for help and discuss with the Dify community.

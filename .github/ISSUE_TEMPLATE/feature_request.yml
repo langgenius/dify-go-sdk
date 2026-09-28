@@ -1,0 +1,15 @@
+name: Feature request
+description: A Dify capability the SDK does not reach yet
+labels:
+  - enhancement
+body:
+  - type: textarea
+    attributes:
+      label: What you want to do
+      description: The task, and the Dify route or console action it needs, if you know it.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: How you do it today
+      description: A workaround, the Python SDK, or the console.
