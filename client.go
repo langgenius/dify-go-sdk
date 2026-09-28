@@ -56,3 +56,40 @@ func NewKnowledge(opts ...Option) (*Knowledge, error) {
 	}
 	return usecase.NewKnowledgeOn(t), nil
 }
+
+// NewManagement builds a client for the workspace, from a console session
+// given as tokens: WithConsoleToken and WithCSRFToken, or DIFY_CONSOLE_TOKEN
+// and DIFY_CONSOLE_CSRF_TOKEN. The host comes from WithHost, DIFY_HOST, or Dify
+// Cloud. It sends nothing.
+//
+// A session given as tokens is not renewed when it expires, since only a
+// login hands out the refresh token; LoginManagement is the one that lasts.
+func NewManagement(opts ...Option) (*Management, error) {
+	t, err := infra.NewConsoleTransport(opts)
+	if err != nil {
+		return nil, err
+	}
+	return managementOn(t), nil
+}
+
+// LoginManagement logs in to the console with an account's email and
+// password, and returns a client holding the session. The session is renewed
+// when it expires, for as long as Dify's refresh token lasts (30 days by
+// default).
+//
+// Prefer an account made for automation: this is the credential to the whole
+// account, and Dify offers nothing narrower. The password is used for this one
+// request and not kept.
+func LoginManagement(ctx context.Context, email, password string, opts ...Option) (*Management, error) {
+	t, err := infra.ConsoleLogin(ctx, opts, email, password)
+	if err != nil {
+		return nil, err
+	}
+	return managementOn(t), nil
+}
+
+func managementOn(t *infra.Transport) *Management {
+	return usecase.NewManagementOn(t, t, func(apiKey, user string) (*App, error) {
+		return usecase.NewAppOn(t.ServiceTransportFor(apiKey, user)), nil
+	})
+}

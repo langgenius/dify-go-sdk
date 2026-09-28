@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -39,6 +40,8 @@ func newFakeDify(t *testing.T, handler func(w http.ResponseWriter, r *http.Reque
 	f := &fakeDify{}
 	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
+		// Put the body back, for handlers whose answer depends on it.
+		r.Body = io.NopCloser(bytes.NewReader(raw))
 		rec := recorded{Method: r.Method, Path: r.URL.Path, Query: r.URL.Query(), Header: r.Header.Clone(), Raw: raw}
 		_ = json.Unmarshal(raw, &rec.Body)
 		f.mu.Lock()
@@ -94,3 +97,17 @@ func writeSSE(w http.ResponseWriter, events ...map[string]any) {
 // wire is the transport behind a client's port, for tests that change how it
 // waits or read what it holds.
 func wire(api port.Port) *infra.Transport { return api.(*infra.Transport) }
+
+func writeRaw(w http.ResponseWriter, status int, body string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte(body))
+}
+
+// decodeBody reads a JSON request body inside a handler, for routes whose
+// answer depends on what was sent.
+func decodeBody(r *http.Request) map[string]any {
+	var m map[string]any
+	_ = json.NewDecoder(r.Body).Decode(&m)
+	return m
+}

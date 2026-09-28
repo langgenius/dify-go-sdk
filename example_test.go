@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/langgenius/dify-go-sdk"
@@ -135,4 +136,31 @@ func ExampleWithTimeout() {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 	_, _ = app.Workflows.Runs.Create(ctx, map[string]any{"batch": "…"}, nil)
+}
+
+func ExampleApps_Deploy() {
+	ctx := context.Background()
+	m, err := dify.LoginManagement(ctx, os.Getenv("DIFY_CONSOLE_EMAIL"), os.Getenv("DIFY_CONSOLE_PASSWORD"), dify.WithHost("http://localhost"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	dsl, _ := os.ReadFile("support-bot.yml")
+
+	d, err := m.Apps.Deploy(ctx, string(dsl), nil)
+	if err != nil {
+		log.Fatal(err) // an argument refused before anything was sent
+	}
+	if err := d.Err(dify.StageRunnable); err != nil {
+		// Where it stopped, and what is left on Dify: an app imported but not
+		// published, an import held for confirmation, or one whose answer
+		// never arrived and may exist.
+		log.Fatal(err)
+	}
+
+	app, _ := m.AppClient(d.APIKey, "alice")
+	msg, err := app.Chat.Messages.Create(ctx, "Hello", nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(msg.Answer)
 }

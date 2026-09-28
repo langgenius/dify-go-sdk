@@ -155,3 +155,108 @@ func typeCheck(t *testing.T, dir, path string) (*token.FileSet, []*ast.File, *ty
 	}
 	return fset, files, info
 }
+
+// A type the root's API hands out has to be nameable as dify.X, or a caller
+// cannot declare a variable of it, write a function taking it, or read its
+// docs where they look. The root re-declares names by hand, so a new result
+// type added to a use case is easy to leave out; this walks every exported
+// name, signature, field and method reachable from the root and fails on an
+// internal type with no alias.
+func TestEveryTypeTheAPIHandsOutCanBeNamedFromTheRoot(t *testing.T) {
+	root := importRoot(t)
+	aliased := map[*types.TypeName]bool{}
+	for _, name := range root.Scope().Names() {
+		if tn, ok := root.Scope().Lookup(name).(*types.TypeName); ok && tn.Exported() {
+			if named, ok := types.Unalias(tn.Type()).(*types.Named); ok {
+				aliased[named.Origin().Obj()] = true
+			}
+		}
+	}
+	missing := map[string]string{}
+	seen := map[types.Type]bool{}
+	var walk func(typ types.Type, via string)
+	walk = func(typ types.Type, via string) {
+		typ = types.Unalias(typ)
+		if seen[typ] {
+			return
+		}
+		seen[typ] = true
+		switch typ := typ.(type) {
+		case *types.Named:
+			obj := typ.Origin().Obj()
+			if obj.Pkg() != nil && strings.HasPrefix(obj.Pkg().Path(), module+"/internal/") && obj.Exported() {
+				if !aliased[obj] {
+					missing[obj.Pkg().Name()+"."+obj.Name()] = via
+				}
+				walk(typ.Underlying(), obj.Name())
+				ms := types.NewMethodSet(types.NewPointer(typ))
+				for i := 0; i < ms.Len(); i++ {
+					if m := ms.At(i).Obj(); m.Exported() {
+						walk(m.Type(), obj.Name()+"."+m.Name())
+					}
+				}
+			}
+			if args := typ.TypeArgs(); args != nil {
+				for i := 0; i < args.Len(); i++ {
+					walk(args.At(i), via)
+				}
+			}
+		case *types.Pointer:
+			walk(typ.Elem(), via)
+		case *types.Slice:
+			walk(typ.Elem(), via)
+		case *types.Map:
+			walk(typ.Key(), via)
+			walk(typ.Elem(), via)
+		case *types.Signature:
+			for i := 0; i < typ.Params().Len(); i++ {
+				walk(typ.Params().At(i).Type(), via)
+			}
+			for i := 0; i < typ.Results().Len(); i++ {
+				walk(typ.Results().At(i).Type(), via)
+			}
+		case *types.Struct:
+			for i := 0; i < typ.NumFields(); i++ {
+				if f := typ.Field(i); f.Exported() {
+					walk(f.Type(), via+"."+f.Name())
+				}
+			}
+		}
+	}
+	for _, name := range root.Scope().Names() {
+		if obj := root.Scope().Lookup(name); obj.Exported() {
+			walk(obj.Type(), name)
+		}
+	}
+	var names []string
+	for name := range missing {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		t.Errorf("%s is handed out through %s but has no alias in dify.go", name, missing[name])
+	}
+}
+
+// importRoot loads the root package from the export data `go list` builds.
+func importRoot(t *testing.T) *types.Package {
+	t.Helper()
+	cmd := exec.Command("go", "list", "-export", "-deps", "-f", "{{.ImportPath}}={{.Export}}", ".")
+	cmd.Dir = ".."
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go list: %v", err)
+	}
+	exports := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if k, v, ok := strings.Cut(line, "="); ok {
+			exports[k] = v
+		}
+	}
+	imp := importer.ForCompiler(token.NewFileSet(), "gc", func(p string) (io.ReadCloser, error) { return os.Open(exports[p]) })
+	pkg, err := imp.Import(module)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pkg
+}

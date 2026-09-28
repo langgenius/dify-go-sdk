@@ -119,6 +119,38 @@ fields Dify needs. A published pipeline run (`Pipeline.Run`) is queued and
 answers with a batch of documents; a draft run (`RunDraft`) executes the graph
 and answers with a `WorkflowRun`.
 
+## Management
+
+Creating, publishing and deleting apps is the console API's, and it
+authenticates as an account rather than as an app:
+
+```go
+m, err := dify.LoginManagement(ctx, email, password, dify.WithHost("http://localhost"))
+
+d, err := m.Apps.Deploy(ctx, dsl, nil)            // import, publish, mint a key
+if err := d.Err(dify.StageRunnable); err != nil {  // where it stopped, and what is left
+	return err
+}
+app, err := m.AppClient(d.APIKey, "alice")        // an App on the same Dify
+```
+
+A deploy reports each step as its own fact — `Imported`, `Published`,
+`APIKey` — plus `NeedsConfirmation` for an import Dify holds over a DSL
+version difference, and `Indeterminate` for one whose answer never arrived,
+since that app may exist. `Apps.Import`, `Publish`, `Confirm` and `RunDraft`
+(run the draft without publishing it) are the steps on their own;
+`Apps.Temporary` deploys an app for a test and cleans up if it stops short.
+
+`m.Apps.Keys`, `m.Apps.Triggers`, `m.Agents`, `m.Pipelines`, `m.Models`,
+`m.Tools`, `m.Skills` and `m.DatasetKeys` cover the rest.
+
+A session from `LoginManagement` is renewed when it expires, and is the
+credential to the whole account for as long as its refresh token lasts —
+30 days by default — so end it with `m.Logout(ctx)` when done.
+`m.SessionTokens()` hands the current tokens to another process; `NewManagement`
+takes them back as `DIFY_CONSOLE_TOKEN` and, since Dify 1.17,
+`DIFY_CONSOLE_CSRF_TOKEN`, which every console request needs, reads included.
+
 ## Listings
 
 Every listing returns a `*Page[T]`, whether Dify pages it by number, by
@@ -181,6 +213,8 @@ the stream.
 | `DIFY_API_BASE_URL` | overrides that derivation |
 | `DIFY_API_KEY` | an app's key, read by `NewApp` |
 | `DIFY_DATASET_API_KEY` | a knowledge key, read by `NewKnowledge` (falls back to `DIFY_API_KEY`) |
+| `DIFY_CONSOLE_TOKEN` | a console access token, read by `NewManagement` |
+| `DIFY_CONSOLE_CSRF_TOKEN` | the CSRF token that goes with it |
 
 Options win over the environment. An explicitly empty `WithAPIKey("")` is an
 error, not a fallback. `WithAPIKeyFunc` fetches the key per request, for a
@@ -200,9 +234,14 @@ Each checked against Dify's controllers:
   `download()` treats that JSON as the file's bytes.
 - Updating a document by text takes no embedding fields; only the file update
   does, as in Dify's payload models.
+- The console session sends its CSRF token on reads too, finds its cookies
+  under the `__Host-` names Dify uses behind https, and renews itself with the
+  refresh token a login hands out.
+- A skill is deleted with its display name as confirmation, the field Dify
+  checks, and only when something references it.
 
 Not ported: workflow and agent definitions (built on the Python-only `graphon`
-engine), and the console-side `DifyManagement` / `OpenApiClient`.
+engine) — Management deploys DSL text — and `OpenApiClient`.
 
 ## Development
 

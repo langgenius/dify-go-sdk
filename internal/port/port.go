@@ -31,6 +31,18 @@ type Port interface {
 	MaskedKey() string
 }
 
+// Session is a console login, for the two things a caller does with the
+// session itself rather than through it: hand its tokens to another process,
+// and end it.
+type Session interface {
+	// Tokens are the access and CSRF tokens as they stand — renewed ones,
+	// after a renewal.
+	Tokens() (access, csrf string)
+	// Forget drops the session, so a later request is refused here rather
+	// than sent with a token that was logged out.
+	Forget()
+}
+
 // Request is one call, described so that it can be sent more than once.
 type Request struct {
 	Method string
@@ -80,6 +92,17 @@ func (p Params) SetInt(key string, value int) Params {
 
 func (p Params) SetBool(key string, value bool) Params {
 	url.Values(p).Set(key, strconv.FormatBool(value))
+	return p
+}
+
+// Add appends each value under key, for a parameter Dify reads as a list —
+// ?tag_ids=a&tag_ids=b, where a comma-joined value is one invalid id.
+func (p Params) Add(key string, values ...string) Params {
+	for _, v := range values {
+		if v != "" {
+			url.Values(p).Add(key, v)
+		}
+	}
 	return p
 }
 

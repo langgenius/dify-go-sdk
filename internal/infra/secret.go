@@ -58,31 +58,11 @@ func (k secretKey) String() string {
 		// Resolving here would call the vault just to print a value.
 		return "<key func>"
 	}
-	return MaskSecret(k.Static)
+	return kernel.MaskSecret(k.Static)
 }
 
 func (k secretKey) GoString() string             { return "secretKey(" + k.String() + ")" }
 func (k secretKey) MarshalText() ([]byte, error) { return []byte(k.String()), nil }
-
-// MaskSecret renders a key the way it is safe to print: app-****3f2a.
-//
-// Dify issues keys with a type prefix (app-, dataset-), which is kept so a
-// masked key is still identifiable.
-func MaskSecret(value string) string {
-	const keep = 4
-	if value == "" {
-		return "****"
-	}
-	head, tail := "", value
-	if prefix, rest, ok := strings.Cut(value, "-"); ok && len(prefix) <= 8 {
-		head, tail = prefix+"-", rest
-	}
-	// Showing the tail of a short value would reveal most of it.
-	if len(tail) <= keep*2 {
-		return head + "****"
-	}
-	return head + "****" + tail[len(tail)-keep:]
-}
 
 // resolveKey picks the credential: the option, then the environment.
 //
