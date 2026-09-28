@@ -1,3 +1,3 @@
 module github.com/langgenius/dify-go-sdk
 
-go 1.23
+go 1.24
