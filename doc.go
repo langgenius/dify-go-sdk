@@ -1,9 +1,11 @@
-// Package dify is a Go client for Dify's Service API.
+// Package dify is a Go client for Dify: its Service API, and the console API
+// for managing a workspace.
 //
-// Two clients, because Dify scopes two credentials:
+// Three clients, because Dify scopes three credentials:
 //
-//	App        an app's key (app-…)      running one app, its conversations, its files
-//	Knowledge  a dataset key (dataset-…) knowledge bases, documents, retrieval
+//	App         an app's key (app-…)      running one app, its conversations, its files
+//	Knowledge   a dataset key (dataset-…) knowledge bases, documents, retrieval
+//	Management  a console session         deploying apps, keys, what the workspace has
 //
 // A client holds the connection and the credential. What you can do hangs off
 // it by what it acts on — app.Chat.Messages, app.Workflows.Runs,
@@ -21,7 +23,9 @@
 // Keys and hosts resolve from options first, then the environment, using the
 // names the difyctl CLI reads: DIFY_API_KEY, DIFY_HOST (the Service API is
 // derived as <host>/v1), and DIFY_API_BASE_URL to override that derivation.
-// Knowledge reads DIFY_DATASET_API_KEY, then DIFY_API_KEY.
+// Knowledge reads DIFY_DATASET_API_KEY, then DIFY_API_KEY. Management reads
+// DIFY_CONSOLE_TOKEN and DIFY_CONSOLE_CSRF_TOKEN, or logs in with
+// LoginManagement, and talks to <host>/console/api.
 //
 // # Streams
 //

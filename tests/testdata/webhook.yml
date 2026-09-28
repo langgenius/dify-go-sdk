@@ -1,0 +1,85 @@
+app:
+  name: sdk-go-harness-webhook
+  mode: workflow
+  icon_type: emoji
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  description: ''
+  use_icon_as_answer_icon: false
+kind: app
+version: 0.7.0
+workflow:
+  graph:
+    nodes:
+    - id: trigger_webhook
+      type: custom
+      position:
+        x: 80
+        y: 282
+      data:
+        type: trigger-webhook
+        title: Webhook
+        version: '1'
+        retry_config:
+          max_retries: 0
+          retry_interval: 0
+          retry_enabled: false
+        method: post
+        content_type: application/json
+        headers:
+        - name: x-signature
+          type: string
+          required: true
+        params: []
+        body:
+        - name: order_id
+          type: string
+          required: true
+        - name: total
+          type: number
+          required: false
+        status_code: 200
+        response_body: ''
+    - id: end
+      type: custom
+      position:
+        x: 384
+        y: 282
+      data:
+        type: end
+        title: End
+        version: '1'
+        retry_config:
+          max_retries: 0
+          retry_interval: 0
+          retry_enabled: false
+        outputs:
+        - variable: order_id
+          value_type: any
+          value_selector:
+          - trigger_webhook
+          - order_id
+        - variable: total
+          value_type: any
+          value_selector:
+          - trigger_webhook
+          - total
+    edges:
+    - id: trigger_webhook-source-end
+      source: trigger_webhook
+      target: end
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data:
+        sourceType: trigger-webhook
+        targetType: end
+        isInIteration: false
+        isInLoop: false
+    viewport:
+      x: 0
+      y: 0
+      zoom: 1
+  features: {}
+  environment_variables: []
+  conversation_variables: []

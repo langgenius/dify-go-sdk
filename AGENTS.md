@@ -2,19 +2,21 @@
 
 Instructions for coding agents. `CLAUDE.md` points here; keep this the only copy.
 
-This is a Go port of the Service-API half of
+This is a Go port of the "using Dify" half of
 [dify-python-sdk](https://github.com/langgenius/dify-python-sdk) (`DifyApp`,
-`DifyKnowledge`). That repo's `AGENTS.md` records why most shapes here are the
+`DifyKnowledge`, `DifyManagement`). That repo's `AGENTS.md` records why most shapes here are the
 way they are — every row of its "Distinctions to preserve" table was a bug
 once, and the port keeps them. Read it before changing behaviour.
 
 Not ported: workflow/agent definitions (they build on the Python-only
-`graphon` engine), `DifyManagement` (console API), `OpenApiClient`.
+`graphon` engine), so Management deploys DSL text; `OpenApiClient` and the
+console's `mint_openapi_token`.
 
 ## Verify against a running Dify
 
 Dify's controllers are the specification, not its docs and not the Python SDK:
-`../dify-oss/api/controllers/service_api/`. Read a route's pydantic query or
+`../dify-oss/api/controllers/service_api/` for App and Knowledge,
+`../dify-oss/api/controllers/console/` for Management. Read a route's pydantic query or
 payload model before adding or changing a call. Two places the port already
 departs from the Python SDK because the controller said so:
 
@@ -27,6 +29,39 @@ departs from the Python SDK because the controller said so:
 When a claim cannot be checked against a real server, say so rather than
 implying it was. A mocked server proves the request shape, nothing more.
 
+The console departs from the Python SDK in more places, each read off the
+1.17.1 controllers:
+
+- **The CSRF token is checked on every method but OPTIONS**, reads included
+  (`libs/login.py`), not on writes only; the bearer header does not exempt a
+  request. Only `/apps/<id>/workflows/draft…` is whitelisted.
+- **Cookie names get a `__Host-` prefix** when both console URLs are https
+  and no `COOKIE_DOMAIN` is set (`libs/token.py`), and Dify reads only the name
+  it would write. A login sends back the names it was given; a token from the
+  environment goes under both spellings.
+- **A login hands out a refresh token**, as a cookie only; `POST
+  /refresh-token` renews all three. A session from `LoginManagement` is renewed
+  once on a 401 and the request sent again — safe for any method, since Dify
+  refused it.
+- **A workflow publish reports no version id**, only `created_at`, so
+  `Deployment.Version` is set for an Agent (its snapshot id) and nothing else.
+- **A skill's delete confirmation is its `display_name`**, and is needed only
+  when something references the skill; publish and delete read a JSON body
+  and refuse a missing one.
+- **Dify 1.17 lists an app's keys in full.** The workspace's dataset keys are
+  masked as `token[:5]...token[-4:]`.
+- **A failed import answers 400 with the import's status in the body**, and a
+  held one 202. Both are states on the `Deployment`, not errors.
+
+Two tests keep the console honest without a server. `tests/routes_test.go`
+holds `consoleRoutes`, every route Management sends to, spelled as Dify
+registers it: the console fakes fail on a request not in it, and it is
+checked against the controllers in `../dify-oss` (or `DIFY_OSS_DIR`) — path
+and method — whenever a checkout is there. A new console call adds its route
+to the table after reading the controller. `tests/architecture_test.go`
+fails when the root's API hands out an internal type `dify.go` does not
+alias.
+
 ## Commands
 
 ```bash
@@ -37,12 +72,15 @@ set -a; . ../dify-python-sdk/.env; set +a # DIFY_HOST + console email/password
 go test -run Live -v ./...                # against the local Dify
 ```
 
-The live harness (`tests/live_test.go`) logs in to the console, imports the
-fixture apps in `tests/testdata/` (template nodes only, so runs cost nothing), publishes
-them, mints keys and a dataset key, and deletes everything at the end —
+The live harness (`tests/live_test.go`) logs in with `dify.LoginManagement`,
+deploys the fixture apps in `tests/testdata/` with `Management.Apps.Deploy`
+(template nodes only, so runs cost nothing), mints a dataset key with
+`Management.DatasetKeys`, and deletes everything at the end —
 including leftovers from a crashed run, found by the `sdk-go-harness` prefix.
-To regenerate a fixture, build it with the Python SDK's `tests/live/conftest.py`
-helpers and `wf.to_yaml()`.
+To regenerate a fixture, build it with the Python SDK's builders and
+`to_yaml()` — `Workflow` for `workflow.yml`, `chatflow.yml` and `webhook.yml`,
+`Pipeline` for `pipeline.yml`, `Agent` for `agent.yml` — the way its
+`tests/live/` builds the same ones. None of them calls a model.
 
 ## Shape of the package
 
