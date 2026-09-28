@@ -58,5 +58,5 @@ func (a *Audio) Transcribe(ctx context.Context, file Upload, user string) (strin
 	if err != nil {
 		return "", err
 	}
-	return o.str("text"), nil
+	return transcriptFrom(o), nil
 }

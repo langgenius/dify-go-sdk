@@ -5,33 +5,6 @@ import (
 	"net/http"
 )
 
-// Segment is a chunk of a document, as retrieval sees it.
-type Segment struct {
-	ID        string
-	Content   string
-	Answer    string
-	Keywords  []string
-	Position  int
-	WordCount int
-	Enabled   bool
-	Raw       map[string]any
-}
-
-func (s *Segment) String() string { return s.Content }
-
-func segmentFrom(o object) *Segment {
-	return &Segment{
-		ID:        o.str("id"),
-		Content:   o.str("content"),
-		Answer:    o.str("answer"),
-		Keywords:  o.strs("keywords"),
-		Position:  o.int("position"),
-		WordCount: o.int("word_count"),
-		Enabled:   boolOr(o, "enabled", true),
-		Raw:       o.raw(),
-	}
-}
-
 // Segments are the chunks of one document, and the child chunks beneath
 // them.
 type Segments struct {
@@ -72,11 +45,7 @@ func (s *Segments) Retrieve(ctx context.Context, segmentID string) (*Segment, er
 	if err != nil {
 		return nil, err
 	}
-	data := o.obj("data")
-	if len(data) == 0 {
-		data = o
-	}
-	return segmentFrom(data), nil
+	return segmentFromEnvelope(o), nil
 }
 
 // Create adds segments by hand, rather than letting Dify chunk. Each map is
@@ -86,7 +55,7 @@ func (s *Segments) Create(ctx context.Context, segments []map[string]any) ([]*Se
 	if err != nil {
 		return nil, err
 	}
-	return buildAll(o.objs("data"), segmentFrom), nil
+	return segmentsFrom(o), nil
 }
 
 // Update changes one segment. fields is merged onto Dify's own
@@ -97,11 +66,7 @@ func (s *Segments) Update(ctx context.Context, segmentID string, fields map[stri
 	if err != nil {
 		return nil, err
 	}
-	data := o.obj("data")
-	if len(data) == 0 {
-		data = o
-	}
-	return segmentFrom(data), nil
+	return segmentFromEnvelope(o), nil
 }
 
 // Delete removes one segment.
@@ -132,7 +97,7 @@ func (s *Segments) ChildChunks(ctx context.Context, segmentID string, p *ChildCh
 	if err != nil {
 		return nil, err
 	}
-	return o.maps("data"), nil
+	return dataMaps(o), nil
 }
 
 // AddChildChunk adds one child chunk.
@@ -157,13 +122,4 @@ func (s *Segments) UpdateChildChunk(ctx context.Context, segmentID, chunkID, con
 func (s *Segments) DeleteChildChunk(ctx context.Context, segmentID, chunkID string) error {
 	_, err := s.api.call(ctx, &request{method: http.MethodDelete, path: s.path("segments", pathEscape(segmentID), "child_chunks", pathEscape(chunkID))})
 	return err
-}
-
-// unwrapData is the "data" object inside an envelope, or the envelope itself
-// when there is no such wrapping.
-func unwrapData(o object) map[string]any {
-	if data := o.obj("data"); len(data) > 0 {
-		return data.raw()
-	}
-	return o.raw()
 }

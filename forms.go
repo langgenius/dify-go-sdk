@@ -6,18 +6,6 @@ import (
 	"strings"
 )
 
-// Form is a paused run's human-input form, as it should be shown to whoever
-// fills it in.
-type Form struct {
-	Token     string
-	Content   string
-	Inputs    []map[string]any
-	Actions   []map[string]any
-	Defaults  map[string]any
-	ExpiresAt *int64
-	Raw       map[string]any
-}
-
 // Forms are the forms a paused run is waiting on.
 //
 // Waiting is not failing: a run that reaches a human-input node stops, its
@@ -55,15 +43,7 @@ func (f *Forms) Retrieve(ctx context.Context, token string) (*Form, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Form{
-		Token:     token,
-		Content:   o.str("form_content"),
-		Inputs:    o.maps("inputs"),
-		Actions:   o.maps("user_actions"),
-		Defaults:  o.obj("resolved_default_values").raw(),
-		ExpiresAt: o.intPtr("expiration_time"),
-		Raw:       o.raw(),
-	}, nil
+	return formFrom(o, token), nil
 }
 
 // Submit answers a form with one of its actions, which resumes the run.

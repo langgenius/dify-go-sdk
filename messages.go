@@ -90,77 +90,6 @@ func (m *Messages) Stream(ctx context.Context, query string, p *MessageParams) (
 	return &MessageStream{newEventStream(events, p == nil || !p.KeepErrors)}, nil
 }
 
-// messageFromBlocking reads a blocking reply, which is the finished message
-// by definition — except when a chatflow reaches a human-input node and
-// answers workflow_paused with the forms it is waiting on. That is a message
-// still being written, and calling it finished would make Succeeded true for
-// an answer nobody has given yet.
-func messageFromBlocking(o object) *Message {
-	waiting := formTokens(o)
-	return &Message{
-		Finished:       len(waiting) == 0,
-		PendingForms:   waiting,
-		Answer:         o.str("answer"),
-		MessageID:      firstNonZero(o.str("message_id"), o.str("id")),
-		ConversationID: o.str("conversation_id"),
-		TaskID:         o.str("task_id"),
-		Metadata:       o.obj("metadata").raw(),
-		CreatedAt:      o.intPtr("created_at"),
-		Raw:            o.raw(),
-	}
-}
-
-// HistoryMessage is one turn in a conversation, as Dify records it.
-//
-// Deliberately not a Message. History carries the Query that prompted the
-// answer, the files attached, the feedback left and what it cost — none of
-// which a fresh reply has — and it has no TaskID, because nothing is running
-// to stop. Reusing one type for both dropped the query, leaving a transcript
-// of answers to questions nobody could see.
-type HistoryMessage struct {
-	ID             string
-	ConversationID string
-	// Query is what the user said.
-	Query  string
-	Answer string
-	Inputs map[string]any
-	Files  []map[string]any
-	// Feedback is "like", "dislike", or empty when nobody rated it.
-	Feedback           string
-	RetrieverResources []map[string]any
-	AgentThoughts      []map[string]any
-	Status             string
-	Error              string
-	CreatedAt          *int64
-	Usage              Usage
-	Raw                map[string]any
-}
-
-func historyFrom(o object) HistoryMessage {
-	return HistoryMessage{
-		ID:                 o.str("id"),
-		ConversationID:     o.str("conversation_id"),
-		Query:              o.str("query"),
-		Answer:             o.str("answer"),
-		Inputs:             o.obj("inputs").raw(),
-		Files:              o.maps("message_files"),
-		Feedback:           o.obj("feedback").str("rating"),
-		RetrieverResources: o.maps("retriever_resources"),
-		AgentThoughts:      o.maps("agent_thoughts"),
-		Status:             o.str("status"),
-		Error:              o.str("error"),
-		CreatedAt:          o.intPtr("created_at"),
-		Usage: usageFrom(object{
-			"prompt_tokens":     o["message_tokens"],
-			"completion_tokens": o["answer_tokens"],
-			"total_tokens":      o["total_tokens"],
-			"total_price":       o["total_price"],
-			"currency":          o["currency"],
-		}, o["provider_response_latency"]),
-		Raw: o.raw(),
-	}
-}
-
 // HistoryParams narrow a conversation's history.
 type HistoryParams struct {
 	User string
@@ -260,5 +189,5 @@ func (m *Messages) Suggested(ctx context.Context, messageID, user string) ([]str
 	if err != nil {
 		return nil, err
 	}
-	return o.strs("data"), nil
+	return suggestionsFrom(o), nil
 }

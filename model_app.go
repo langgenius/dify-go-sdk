@@ -224,33 +224,220 @@ func (m *Message) Succeeded() bool { return m.Finished && m.Error == "" && !m.Pa
 
 func (m *Message) String() string { return m.Answer }
 
-// formTokens reads the forms a paused blocking answer is waiting on, from
-// data.reasons[].form_token.
-func formTokens(payload object) []string {
-	source := payload
-	if data := payload.obj("data"); data.has("reasons") {
-		source = data
-	}
-	var tokens []string
-	for _, reason := range source.objs("reasons") {
-		if token := reason.str("form_token"); token != "" {
-			tokens = append(tokens, token)
-		}
-	}
-	return tokens
+// ServerInfo is what the Service API says about itself, before any
+// credential.
+type ServerInfo struct {
+	ServerVersion string
+	APIVersion    string
+	Welcome       string
 }
 
-// pausedNodes reads the nodes a paused blocking answer is waiting at.
-func pausedNodes(payload object) []string {
-	source := payload
-	if data := payload.obj("data"); data.has("reasons") {
-		source = data
+func (s ServerInfo) String() string {
+	return strings.TrimSpace(fmt.Sprintf("Dify %s (%s)", s.ServerVersion, s.APIVersion))
+}
+
+// AppInfo is what Dify says an app is.
+type AppInfo struct {
+	Name        string
+	Mode        string
+	Description string
+	Tags        []string
+	AuthorName  string
+	Raw         map[string]any
+}
+
+// IsChat reports whether the app is served at /chat-messages.
+func (i *AppInfo) IsChat() bool {
+	switch i.Mode {
+	case "chat", "advanced-chat", "agent-chat":
+		return true
 	}
-	var nodes []string
-	for _, reason := range source.objs("reasons") {
-		if node := reason.str("node_id"); node != "" {
-			nodes = append(nodes, node)
+	return false
+}
+
+// IsWorkflow reports whether the app is served at /workflows/run.
+func (i *AppInfo) IsWorkflow() bool { return i.Mode == "workflow" }
+
+// InputField is one field an app declares, as its start node defines it.
+//
+// Name is the key to put in inputs. Dify spells it "variable" and puts a
+// separate label beside it for display; using the label as the key is the
+// usual first mistake, because for a field created in the UI the two are
+// often the same string and it works until someone renames one.
+type InputField struct {
+	Name  string
+	Label string
+	// Type is text-input, paragraph, select, number, file, file-list,
+	// checkbox, json_object or external_data_tool.
+	Type        string
+	Required    bool
+	Options     []string
+	Default     any
+	MaxLength   *int
+	Description string
+	Hidden      bool
+	Raw         map[string]any
+}
+
+// AppParameters is what an app declares it takes, and what it has turned on.
+type AppParameters struct {
+	Inputs             []InputField
+	OpeningStatement   string
+	SuggestedQuestions []string
+	// Features are the toggles, flattened: Dify sends each as
+	// {"enabled": bool}.
+	Features map[string]bool
+	// FileUpload is what the app accepts as uploads.
+	FileUpload map[string]any
+	// SystemParameters are the deployment's own limits — file sizes in MB,
+	// uploads per workflow.
+	SystemParameters map[string]any
+	Raw              map[string]any
+}
+
+// Input is the declared field with this name, and false when there is none.
+func (p *AppParameters) Input(name string) (InputField, bool) {
+	for _, f := range p.Inputs {
+		if f.Name == name {
+			return f, true
 		}
 	}
-	return nodes
+	return InputField{}, false
+}
+
+// Required is the fields a run will be rejected without.
+func (p *AppParameters) Required() []InputField {
+	var out []InputField
+	for _, f := range p.Inputs {
+		if f.Required {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// SiteSettings is the WebApp's own settings: what a visitor sees before
+// typing anything.
+type SiteSettings struct {
+	Title                  string
+	Description            string
+	Icon                   string
+	IconType               string
+	IconBackground         string
+	IconURL                string
+	DefaultLanguage        string
+	ChatColorTheme         string
+	ChatColorThemeInverted bool
+	InputPlaceholder       string
+	Copyright              string
+	PrivacyPolicy          string
+	CustomDisclaimer       string
+	ShowWorkflowSteps      bool
+	UseIconAsAnswerIcon    bool
+	Raw                    map[string]any
+}
+
+// Annotation is a question and the answer you want given for it.
+type Annotation struct {
+	ID        string
+	Question  string
+	Answer    string
+	HitCount  int
+	CreatedAt *int64
+	Raw       map[string]any
+}
+
+// AnnotationReplyJob is the indexing job that turns annotation reply on or
+// off. Enabling it embeds every annotation, which takes time — so Dify
+// answers with a job rather than a result.
+type AnnotationReplyJob struct {
+	ID     string
+	Status string
+	Error  string
+}
+
+// Finished reports whether the job is over, either way.
+func (j *AnnotationReplyJob) Finished() bool {
+	switch j.Status {
+	case "completed", "failed", "error":
+		return true
+	}
+	return false
+}
+
+// Conversation is one thread, belonging to one user.
+type Conversation struct {
+	ID           string
+	Name         string
+	Status       string
+	Introduction string
+	Inputs       map[string]any
+	CreatedAt    *int64
+	UpdatedAt    *int64
+	Raw          map[string]any
+}
+
+// UploadedFile is a file Dify has taken, and the reference that points at it.
+type UploadedFile struct {
+	ID        string
+	Name      string
+	Size      int64
+	MimeType  string
+	Extension string
+	// CreatedBy is an end-user id; App.EndUser resolves it.
+	CreatedBy string
+	CreatedAt *int64
+	Raw       map[string]any
+}
+
+// Reference is the mapping a run's or a message's inputs use to name this
+// file. Dify takes a reference, not the bytes:
+//
+//	f, _ := app.Files.Upload(ctx, dify.FileFromPath("report.pdf"), nil)
+//	app.Workflows.Runs.Create(ctx, map[string]any{"doc": f.Reference("document")}, nil)
+//
+// kind is document, image, audio, video or custom.
+func (f *UploadedFile) Reference(kind string) map[string]any {
+	if kind == "" {
+		kind = "document"
+	}
+	return map[string]any{"transfer_method": "local_file", "upload_file_id": f.ID, "type": kind}
+}
+
+// Form is a paused run's human-input form, as it should be shown to whoever
+// fills it in.
+type Form struct {
+	Token     string
+	Content   string
+	Inputs    []map[string]any
+	Actions   []map[string]any
+	Defaults  map[string]any
+	ExpiresAt *int64
+	Raw       map[string]any
+}
+
+// HistoryMessage is one turn in a conversation, as Dify records it.
+//
+// Deliberately not a Message. History carries the Query that prompted the
+// answer, the files attached, the feedback left and what it cost — none of
+// which a fresh reply has — and it has no TaskID, because nothing is running
+// to stop. Reusing one type for both dropped the query, leaving a transcript
+// of answers to questions nobody could see.
+type HistoryMessage struct {
+	ID             string
+	ConversationID string
+	// Query is what the user said.
+	Query  string
+	Answer string
+	Inputs map[string]any
+	Files  []map[string]any
+	// Feedback is "like", "dislike", or empty when nobody rated it.
+	Feedback           string
+	RetrieverResources []map[string]any
+	AgentThoughts      []map[string]any
+	Status             string
+	Error              string
+	CreatedAt          *int64
+	Usage              Usage
+	Raw                map[string]any
 }

@@ -72,34 +72,6 @@ func (r *WorkflowRuns) Stream(ctx context.Context, inputs map[string]any, p *Run
 	return &WorkflowRunStream{newEventStream(events, p == nil || !p.KeepErrors)}, nil
 }
 
-// runFromBlocking reads a blocking response, which nests the run under data.
-// Its token total is kept as ReportedUsage rather than invented into a
-// nameless node execution.
-func runFromBlocking(o object) *WorkflowRun {
-	data := o.obj("data")
-	if len(data) == 0 {
-		data = o
-	}
-	run := &WorkflowRun{
-		Status:  firstNonZero(data.str("status"), "unknown"),
-		Outputs: data.obj("outputs").raw(),
-		Nodes:   map[string]NodeExecution{},
-		Error:   data.str("error"),
-		RunID:   firstNonZero(data.str("id"), o.str("workflow_run_id")),
-		TaskID:  o.str("task_id"),
-		// A run that pauses answers blocking too, with the tokens to resume
-		// it under data.reasons.
-		PendingForms: formTokens(o),
-		PausedNodes:  pausedNodes(o),
-		Raw:          o.raw(),
-	}
-	if data.int("total_tokens") != 0 || truthy(data["total_price"]) {
-		u := usageFrom(data, data["elapsed_time"])
-		run.ReportedUsage = &u
-	}
-	return run
-}
-
 // Retrieve reads a run back by its id. A paused run read this way reports
 // status "paused" and no forms: the tokens were raised on the stream.
 func (r *WorkflowRuns) Retrieve(ctx context.Context, runID string) (*WorkflowRun, error) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 )
 
 // App is one Dify app, addressed by its Service-API key.
@@ -55,22 +54,6 @@ func (a *App) String() string {
 // GoString keeps %#v from printing the key.
 func (a *App) GoString() string { return a.String() }
 
-// ServerInfo is what the Service API says about itself, before any
-// credential.
-type ServerInfo struct {
-	ServerVersion string
-	APIVersion    string
-	Welcome       string
-}
-
-func (s ServerInfo) String() string {
-	return strings.TrimSpace(fmt.Sprintf("Dify %s (%s)", s.ServerVersion, s.APIVersion))
-}
-
-func serverInfoFrom(o object) *ServerInfo {
-	return &ServerInfo{ServerVersion: o.str("server_version"), APIVersion: o.str("api_version"), Welcome: o.str("welcome")}
-}
-
 // ServerInfo asks this client's Dify what it is. The Service API's index
 // takes no credential and is the one place the running version is reliably
 // reported: /openapi/v1/_version is off unless OPENAPI_ENABLED is set, and
@@ -86,134 +69,13 @@ func serverInfo(ctx context.Context, api port) (*ServerInfo, error) {
 	return serverInfoFrom(o), nil
 }
 
-// AppInfo is what Dify says an app is.
-type AppInfo struct {
-	Name        string
-	Mode        string
-	Description string
-	Tags        []string
-	AuthorName  string
-	Raw         map[string]any
-}
-
-// IsChat reports whether the app is served at /chat-messages.
-func (i *AppInfo) IsChat() bool {
-	switch i.Mode {
-	case "chat", "advanced-chat", "agent-chat":
-		return true
-	}
-	return false
-}
-
-// IsWorkflow reports whether the app is served at /workflows/run.
-func (i *AppInfo) IsWorkflow() bool { return i.Mode == "workflow" }
-
 // Info is what this app is: its name, and the mode that decides its routes.
 func (a *App) Info(ctx context.Context) (*AppInfo, error) {
 	o, err := a.api.call(ctx, &request{method: http.MethodGet, path: "/info"})
 	if err != nil {
 		return nil, err
 	}
-	return &AppInfo{
-		Name:        o.str("name"),
-		Mode:        o.str("mode"),
-		Description: o.str("description"),
-		Tags:        o.strs("tags"),
-		AuthorName:  o.str("author_name"),
-		Raw:         o.raw(),
-	}, nil
-}
-
-// InputField is one field an app declares, as its start node defines it.
-//
-// Name is the key to put in inputs. Dify spells it "variable" and puts a
-// separate label beside it for display; using the label as the key is the
-// usual first mistake, because for a field created in the UI the two are
-// often the same string and it works until someone renames one.
-type InputField struct {
-	Name  string
-	Label string
-	// Type is text-input, paragraph, select, number, file, file-list,
-	// checkbox, json_object or external_data_tool.
-	Type        string
-	Required    bool
-	Options     []string
-	Default     any
-	MaxLength   *int
-	Description string
-	Hidden      bool
-	Raw         map[string]any
-}
-
-// AppParameters is what an app declares it takes, and what it has turned on.
-type AppParameters struct {
-	Inputs             []InputField
-	OpeningStatement   string
-	SuggestedQuestions []string
-	// Features are the toggles, flattened: Dify sends each as
-	// {"enabled": bool}.
-	Features map[string]bool
-	// FileUpload is what the app accepts as uploads.
-	FileUpload map[string]any
-	// SystemParameters are the deployment's own limits — file sizes in MB,
-	// uploads per workflow.
-	SystemParameters map[string]any
-	Raw              map[string]any
-}
-
-// Input is the declared field with this name, and false when there is none.
-func (p *AppParameters) Input(name string) (InputField, bool) {
-	for _, f := range p.Inputs {
-		if f.Name == name {
-			return f, true
-		}
-	}
-	return InputField{}, false
-}
-
-// Required is the fields a run will be rejected without.
-func (p *AppParameters) Required() []InputField {
-	var out []InputField
-	for _, f := range p.Inputs {
-		if f.Required {
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
-// inputField unwraps one {"text-input": {...}} entry. Dify keys each field by
-// its kind rather than putting the kind inside, and an entry with no name is
-// skipped rather than turned into a field called "".
-func inputField(entry object) (InputField, bool) {
-	for kind, config := range entry {
-		cfg, ok := config.(map[string]any)
-		if !ok {
-			continue
-		}
-		c := object(cfg)
-		name := c.str("variable")
-		if name == "" {
-			continue
-		}
-		f := InputField{
-			Name:        name,
-			Label:       c.str("label"),
-			Type:        firstNonZero(c.str("type"), kind),
-			Required:    c.bool("required"),
-			Options:     c.strs("options"),
-			Default:     c["default"],
-			Description: c.str("description"),
-			Hidden:      c.bool("hide"),
-			Raw:         c.raw(),
-		}
-		if c.has("max_length") {
-			n := c.int("max_length")
-			f.MaxLength = &n
-		}
-		return f, true
-	}
-	return InputField{}, false
+	return appInfoFrom(o), nil
 }
 
 // Parameters is the app's declared inputs, features and limits.
@@ -222,27 +84,7 @@ func (a *App) Parameters(ctx context.Context, user string) (*AppParameters, erro
 	if err != nil {
 		return nil, err
 	}
-	p := &AppParameters{
-		OpeningStatement:   o.str("opening_statement"),
-		SuggestedQuestions: o.strs("suggested_questions"),
-		Features:           map[string]bool{},
-		FileUpload:         o.obj("file_upload").raw(),
-		SystemParameters:   o.obj("system_parameters").raw(),
-		Raw:                o.raw(),
-	}
-	for _, entry := range o.objs("user_input_form") {
-		if f, ok := inputField(entry); ok {
-			p.Inputs = append(p.Inputs, f)
-		}
-	}
-	for key, value := range o {
-		if m, ok := value.(map[string]any); ok {
-			if _, has := m["enabled"]; has {
-				p.Features[key] = object(m).bool("enabled")
-			}
-		}
-	}
-	return p, nil
+	return parametersFrom(o), nil
 }
 
 // userOr is the user to name on a read that wants one but does not act for
@@ -261,51 +103,13 @@ func (a *App) Meta(ctx context.Context, user string) (map[string]any, error) {
 	return o.raw(), err
 }
 
-// SiteSettings is the WebApp's own settings: what a visitor sees before
-// typing anything.
-type SiteSettings struct {
-	Title                  string
-	Description            string
-	Icon                   string
-	IconType               string
-	IconBackground         string
-	IconURL                string
-	DefaultLanguage        string
-	ChatColorTheme         string
-	ChatColorThemeInverted bool
-	InputPlaceholder       string
-	Copyright              string
-	PrivacyPolicy          string
-	CustomDisclaimer       string
-	ShowWorkflowSteps      bool
-	UseIconAsAnswerIcon    bool
-	Raw                    map[string]any
-}
-
 // Site is the WebApp settings: title, icon, theme, what visitors may do.
 func (a *App) Site(ctx context.Context) (*SiteSettings, error) {
 	o, err := a.api.call(ctx, &request{method: http.MethodGet, path: "/site"})
 	if err != nil {
 		return nil, err
 	}
-	return &SiteSettings{
-		Title:                  o.str("title"),
-		Description:            o.str("description"),
-		Icon:                   o.str("icon"),
-		IconType:               o.str("icon_type"),
-		IconBackground:         o.str("icon_background"),
-		IconURL:                o.str("icon_url"),
-		DefaultLanguage:        o.str("default_language"),
-		ChatColorTheme:         o.str("chat_color_theme"),
-		ChatColorThemeInverted: o.bool("chat_color_theme_inverted"),
-		InputPlaceholder:       o.str("input_placeholder"),
-		Copyright:              o.str("copyright"),
-		PrivacyPolicy:          o.str("privacy_policy"),
-		CustomDisclaimer:       o.str("custom_disclaimer"),
-		ShowWorkflowSteps:      o.bool("show_workflow_steps"),
-		UseIconAsAnswerIcon:    o.bool("use_icon_as_answer_icon"),
-		Raw:                    o.raw(),
-	}, nil
+	return siteFrom(o), nil
 }
 
 // PageParams pages a numbered listing. Zero values take Dify's defaults.

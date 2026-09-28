@@ -5,46 +5,6 @@ import (
 	"net/http"
 )
 
-// Tag is a label across the workspace's knowledge bases.
-type Tag struct {
-	ID   string
-	Name string
-	Type string
-	// BindingCount is how many knowledge bases carry it. Dify sends this as a
-	// *string* on the wire, so comparing the raw payload's value to an int
-	// compares a str to an int; this is the parsed form.
-	BindingCount int
-	Raw          map[string]any
-}
-
-func (t *Tag) String() string { return t.Name }
-
-func tagFrom(o object) *Tag {
-	count := o.str("binding_count")
-	n := 0
-	if count != "" {
-		digits := true
-		for _, c := range count {
-			if c < '0' || c > '9' {
-				digits = false
-				break
-			}
-		}
-		if digits {
-			for _, c := range count {
-				n = n*10 + int(c-'0')
-			}
-		}
-	}
-	return &Tag{
-		ID:           o.str("id"),
-		Name:         o.str("name"),
-		Type:         o.str("type"),
-		BindingCount: n,
-		Raw:          o.raw(),
-	}
-}
-
 // Tags are tags across the workspace's knowledge bases.
 //
 // Workspace-level, not per-dataset: a tag exists once and is bound to as
@@ -62,7 +22,7 @@ func (tg *Tags) List(ctx context.Context) (*Page[*Tag], error) {
 	if err != nil {
 		return nil, err
 	}
-	return unpaged(buildAll(o.objs("data"), tagFrom)), nil
+	return unpaged(tagsFrom(o)), nil
 }
 
 // Create adds a tag.

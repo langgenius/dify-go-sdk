@@ -9,46 +9,6 @@ import (
 	"path/filepath"
 )
 
-// UploadedFile is a file Dify has taken, and the reference that points at it.
-type UploadedFile struct {
-	ID        string
-	Name      string
-	Size      int64
-	MimeType  string
-	Extension string
-	// CreatedBy is an end-user id; App.EndUser resolves it.
-	CreatedBy string
-	CreatedAt *int64
-	Raw       map[string]any
-}
-
-// Reference is the mapping a run's or a message's inputs use to name this
-// file. Dify takes a reference, not the bytes:
-//
-//	f, _ := app.Files.Upload(ctx, dify.FileFromPath("report.pdf"), nil)
-//	app.Workflows.Runs.Create(ctx, map[string]any{"doc": f.Reference("document")}, nil)
-//
-// kind is document, image, audio, video or custom.
-func (f *UploadedFile) Reference(kind string) map[string]any {
-	if kind == "" {
-		kind = "document"
-	}
-	return map[string]any{"transfer_method": "local_file", "upload_file_id": f.ID, "type": kind}
-}
-
-func uploadedFrom(o object) *UploadedFile {
-	return &UploadedFile{
-		ID:        o.str("id"),
-		Name:      o.str("name"),
-		Size:      o.int64("size"),
-		MimeType:  o.str("mime_type"),
-		Extension: o.str("extension"),
-		CreatedBy: o.str("created_by"),
-		CreatedAt: o.intPtr("created_at"),
-		Raw:       o.raw(),
-	}
-}
-
 // Upload is something to upload: a name, its bytes, and its type.
 type Upload struct {
 	// Name is the recorded file name. Dify types an upload by its extension

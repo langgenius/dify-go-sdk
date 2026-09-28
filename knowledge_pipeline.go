@@ -74,7 +74,7 @@ func (pl *Pipeline) Datasources(ctx context.Context, p *DatasourcesParams) ([]ma
 	if err != nil {
 		return nil, err
 	}
-	return o.maps("data"), nil
+	return dataMaps(o), nil
 }
 
 // RunDatasourceParams are the optional parts of running one datasource node.
@@ -131,38 +131,6 @@ func (in PipelineRunInput) body(published bool, responseMode string) map[string]
 		"is_published":         published,
 		"response_mode":        responseMode,
 	}
-}
-
-// PipelineIngestion is what running a published pipeline queued.
-//
-// A published run does not answer with the work: it enqueues one document
-// per source and answers with the batch they share. The documents are not
-// indexed yet — Documents.IndexingStatus(batch) is how far it has got, and
-// Documents.WaitUntilIndexed waits for it.
-type PipelineIngestion struct {
-	Batch     string
-	Documents []*Document
-	DatasetID string
-	Raw       map[string]any
-}
-
-func ingestionFrom(o object, datasetID string) *PipelineIngestion {
-	batch := o.str("batch")
-	documents := o.objs("documents")
-	docs := make([]*Document, 0, len(documents))
-	for _, item := range documents {
-		merged := make(object, len(item)+1)
-		for k, v := range item {
-			merged[k] = v
-		}
-		merged["batch"] = batch
-		docs = append(docs, documentFrom(merged))
-	}
-	id := o.obj("dataset").str("id")
-	if id == "" {
-		id = datasetID
-	}
-	return &PipelineIngestion{Batch: batch, Documents: docs, DatasetID: id, Raw: o.raw()}
 }
 
 // Run runs the published pipeline over the given sources.

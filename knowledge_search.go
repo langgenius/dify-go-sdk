@@ -1,6 +1,8 @@
 package dify
 
-import "strings"
+import (
+	"strings"
+)
 
 // How Dify may search a knowledge base.
 const (
@@ -153,40 +155,4 @@ func RetrievalModel(p *RetrievalModelParams) (map[string]any, error) {
 		settings["weights"] = p.Weights
 	}
 	return settings, nil
-}
-
-// RetrievalHit is one segment retrieval found, and how well it matched.
-type RetrievalHit struct {
-	Score        float64
-	Segment      *Segment
-	DocumentID   string
-	DocumentName string
-}
-
-func (h *RetrievalHit) String() string {
-	if h.Segment != nil {
-		return h.Segment.Content
-	}
-	return ""
-}
-
-// hitsFrom shapes a retrieval answer, from Datasets.Search or a pipeline's
-// hit-testing.
-func hitsFrom(o object) []*RetrievalHit {
-	records := o.objs("records")
-	if len(records) == 0 {
-		records = o.obj("query").objs("records")
-	}
-	hits := make([]*RetrievalHit, 0, len(records))
-	for _, r := range records {
-		segment := r.obj("segment")
-		document := segment.obj("document")
-		hits = append(hits, &RetrievalHit{
-			Score:        r.float("score"),
-			Segment:      segmentFrom(segment),
-			DocumentID:   document.str("id"),
-			DocumentName: document.str("name"),
-		})
-	}
-	return hits
 }

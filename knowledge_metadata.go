@@ -5,37 +5,6 @@ import (
 	"net/http"
 )
 
-// MetadataField is a field documents in one knowledge base may carry.
-//
-// Two kinds arrive in this shape and the difference is the id: a field you
-// defined has one and can be renamed or deleted by it, while one of Dify's
-// own — filename, upload date — has none, because those are turned on and
-// off rather than managed.
-type MetadataField struct {
-	Name string
-	Type string
-	ID   string
-	// Count is how many documents have a value for it. Absent (zero) on
-	// Dify's own fields.
-	Count int
-	Raw   map[string]any
-}
-
-// BuiltIn reports whether Dify fills this field in rather than you.
-func (m *MetadataField) BuiltIn() bool { return m.ID == "" }
-
-func (m *MetadataField) String() string { return m.Name }
-
-func metadataFieldFrom(o object) *MetadataField {
-	return &MetadataField{
-		Name:  o.str("name"),
-		Type:  o.str("type"),
-		ID:    o.str("id"),
-		Count: o.int("count"),
-		Raw:   o.raw(),
-	}
-}
-
 // Metadata lists the metadata fields this knowledge base defines, custom and
 // built-in.
 func (d *Datasets) Metadata(ctx context.Context, datasetID string) ([]*MetadataField, error) {
@@ -43,11 +12,7 @@ func (d *Datasets) Metadata(ctx context.Context, datasetID string) ([]*MetadataF
 	if err != nil {
 		return nil, err
 	}
-	items := o.objs("doc_metadata")
-	if len(items) == 0 {
-		items = o.objs("data")
-	}
-	return buildAll(items, metadataFieldFrom), nil
+	return metadataFieldsFrom(o, "doc_metadata"), nil
 }
 
 // AddMetadataField defines a metadata field documents in this base may
@@ -86,11 +51,7 @@ func (d *Datasets) BuiltInMetadata(ctx context.Context, datasetID string) ([]*Me
 	if err != nil {
 		return nil, err
 	}
-	items := o.objs("fields")
-	if len(items) == 0 {
-		items = o.objs("data")
-	}
-	return buildAll(items, metadataFieldFrom), nil
+	return metadataFieldsFrom(o, "fields"), nil
 }
 
 // SetBuiltInMetadata turns Dify's own metadata fields on or off for this

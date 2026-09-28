@@ -8,108 +8,6 @@ import (
 	"time"
 )
 
-// Document is one document inside a dataset.
-type Document struct {
-	ID             string
-	Name           string
-	IndexingStatus string
-	WordCount      int
-	Enabled        bool
-	Error          string
-	// Batch is the indexing batch this document arrived in, carried across
-	// from Create or Update — a document read back with List or Retrieve
-	// does not have one. IndexingStatus, WaitUntilSettled and
-	// WaitUntilIndexed all take this, not the document id.
-	Batch string
-	Raw   map[string]any
-}
-
-// Indexed reports whether the document has finished indexing and is
-// searchable.
-func (d *Document) Indexed() bool { return d.IndexingStatus == "completed" }
-
-func (d *Document) String() string { return d.Name }
-
-// boolOr reads a boolean that defaults to true when absent — Dify's own
-// "enabled" field on a document or segment, which is true unless explicitly
-// turned off.
-func boolOr(o object, key string, def bool) bool {
-	if !o.has(key) {
-		return def
-	}
-	return o.bool(key)
-}
-
-func documentFrom(o object) *Document {
-	return &Document{
-		ID:             o.str("id"),
-		Name:           o.str("name"),
-		IndexingStatus: o.str("indexing_status"),
-		WordCount:      o.int("word_count"),
-		Enabled:        boolOr(o, "enabled", true),
-		Error:          o.str("error"),
-		Batch:          o.str("batch"),
-		Raw:            o.raw(),
-	}
-}
-
-// createdDocumentFrom shapes a document as Create and Update report it. Dify
-// nests the document under "document" and puts the indexing batch beside it,
-// not inside it — so the batch has to be carried across, or the document
-// cannot be asked about its own indexing.
-func createdDocumentFrom(o object) *Document {
-	doc := o.obj("document")
-	if len(doc) == 0 {
-		doc = o
-	}
-	batch := firstNonZero(o.str("batch"), doc.str("batch"))
-	merged := make(object, len(doc)+1)
-	for k, v := range doc {
-		merged[k] = v
-	}
-	merged["batch"] = batch
-	return documentFrom(merged)
-}
-
-// IndexingStatus is how far the indexing of one batch has got. Uploading a
-// document returns before it is searchable; this is what says when it is.
-type IndexingStatus struct {
-	ID                string
-	Status            string
-	CompletedSegments int
-	TotalSegments     int
-	Error             string
-}
-
-// Finished reports whether indexing has stopped, however it stopped.
-func (s *IndexingStatus) Finished() bool {
-	switch s.Status {
-	case "completed", "error", "paused":
-		return true
-	}
-	return false
-}
-
-// Indexed reports whether indexing finished successfully.
-func (s *IndexingStatus) Indexed() bool { return s.Status == "completed" }
-
-// statusFrom shapes an indexing-status answer, which arrives as a
-// one-item array.
-func statusFrom(o object) *IndexingStatus {
-	items := o.objs("data")
-	data := object{}
-	if len(items) > 0 {
-		data = items[0]
-	}
-	return &IndexingStatus{
-		ID:                data.str("id"),
-		Status:            data.str("indexing_status"),
-		CompletedSegments: data.int("completed_segments"),
-		TotalSegments:     data.int("total_segments"),
-		Error:             data.str("error"),
-	}
-}
-
 // Documents are the documents inside one knowledge base.
 //
 //	docs := knowledge.Documents(dataset.ID)
@@ -356,14 +254,7 @@ func (d *Documents) Retrieve(ctx context.Context, documentID string) (*Document,
 	if err != nil {
 		return nil, err
 	}
-	data := o.obj("data")
-	if len(data) == 0 {
-		data = o.obj("document")
-	}
-	if len(data) == 0 {
-		data = o
-	}
-	return documentFrom(data), nil
+	return retrievedDocumentFrom(o), nil
 }
 
 // Delete removes a document and its segments.
@@ -482,7 +373,7 @@ func (d *Documents) DownloadURL(ctx context.Context, documentID string) (string,
 	if err != nil {
 		return "", err
 	}
-	return o.str("url"), nil
+	return downloadURLFrom(o), nil
 }
 
 // DownloadAll downloads several documents at once, as a zip. A POST, not a

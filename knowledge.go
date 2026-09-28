@@ -65,7 +65,7 @@ func (k *Knowledge) Models(ctx context.Context, modelType string) ([]*ModelProvi
 	if err != nil {
 		return nil, err
 	}
-	return providersFrom(o.list("data")), nil
+	return modelProvidersFrom(o), nil
 }
 
 // UploadForPipeline uploads a file for a pipeline to consume. Workspace-level
@@ -81,99 +81,4 @@ func (k *Knowledge) UploadForPipeline(ctx context.Context, file Upload) (map[str
 		return nil, err
 	}
 	return o.raw(), nil
-}
-
-// Model is one model this workspace can call.
-type Model struct {
-	// Name is what to pass as "model". Dify spells this "model" in the
-	// payload; it is the identifier, so it is Name here and Label is the
-	// human-readable one.
-	Name string
-	// Provider is not in the model's own payload — carried down from the
-	// provider it was listed under, because every call that takes a model
-	// name takes a provider beside it.
-	Provider   string
-	Label      string
-	Type       string
-	Status     string
-	Deprecated bool
-	// Properties is context size, max chunks and the like. Provider-specific,
-	// so a map.
-	Properties map[string]any
-	Raw        map[string]any
-}
-
-// Usable reports whether Dify says this model can be called right now.
-func (m *Model) Usable() bool { return m.Status == "active" && !m.Deprecated }
-
-func (m *Model) String() string { return m.Name }
-
-// ModelProvider is a configured provider, and the models it offers.
-type ModelProvider struct {
-	Provider string
-	Label    string
-	Status   string
-	Models   []*Model
-	Raw      map[string]any
-}
-
-func (p *ModelProvider) String() string { return p.Provider }
-
-// labelOf reads one readable label out of Dify's {"en_US": …, "zh_Hans": …},
-// falling back to whatever language is there rather than to an empty string:
-// a provider labelled only in Chinese still has a name.
-func labelOf(value any) string {
-	switch v := value.(type) {
-	case string:
-		return v
-	case map[string]any:
-		if s, ok := v["en_US"].(string); ok && s != "" {
-			return s
-		}
-		for _, other := range v {
-			if s, ok := other.(string); ok && s != "" {
-				return s
-			}
-		}
-	}
-	return ""
-}
-
-func modelFrom(o object, provider string) *Model {
-	return &Model{
-		Name:       o.str("model"),
-		Provider:   provider,
-		Label:      labelOf(o["label"]),
-		Type:       o.str("model_type"),
-		Status:     o.str("status"),
-		Deprecated: o.bool("deprecated"),
-		Properties: o.obj("model_properties").raw(),
-		Raw:        o.raw(),
-	}
-}
-
-// providersFrom shapes a model listing, from either the Service API or the
-// console.
-func providersFrom(items []any) []*ModelProvider {
-	out := make([]*ModelProvider, 0, len(items))
-	for _, item := range items {
-		m, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		o := object(m)
-		provider := o.str("provider")
-		var models []*Model
-		for _, mp := range o.objs("models") {
-			models = append(models, modelFrom(mp, provider))
-		}
-		out = append(out, &ModelProvider{
-			Provider: provider,
-			Label:    labelOf(o["label"]),
-			Status:   o.str("status"),
-			Models:   models,
-			Raw:      o.raw(),
-		})
-	}
-	return out
 }

@@ -5,31 +5,6 @@ import (
 	"net/http"
 )
 
-// Conversation is one thread, belonging to one user.
-type Conversation struct {
-	ID           string
-	Name         string
-	Status       string
-	Introduction string
-	Inputs       map[string]any
-	CreatedAt    *int64
-	UpdatedAt    *int64
-	Raw          map[string]any
-}
-
-func conversationFrom(o object) Conversation {
-	return Conversation{
-		ID:           o.str("id"),
-		Name:         o.str("name"),
-		Status:       o.str("status"),
-		Introduction: o.str("introduction"),
-		Inputs:       o.obj("inputs").raw(),
-		CreatedAt:    o.intPtr("created_at"),
-		UpdatedAt:    o.intPtr("updated_at"),
-		Raw:          o.raw(),
-	}
-}
-
 // Conversations are a user's threads with this app.
 type Conversations struct{ api port }
 

@@ -6,35 +6,6 @@ import (
 	"strings"
 )
 
-// Dataset is a knowledge base.
-type Dataset struct {
-	ID                string
-	Name              string
-	Description       string
-	Permission        string
-	IndexingTechnique string
-	DocumentCount     int
-	WordCount         int
-	AppCount          int
-	Raw               map[string]any
-}
-
-func datasetFrom(o object) *Dataset {
-	return &Dataset{
-		ID:                o.str("id"),
-		Name:              o.str("name"),
-		Description:       o.str("description"),
-		Permission:        o.str("permission"),
-		IndexingTechnique: o.str("indexing_technique"),
-		DocumentCount:     o.int("document_count"),
-		WordCount:         o.int("word_count"),
-		AppCount:          o.int("app_count"),
-		Raw:               o.raw(),
-	}
-}
-
-func (d *Dataset) String() string { return d.Name }
-
 // datasetPath builds a path rooted at one dataset.
 func datasetPath(datasetID string, parts ...string) string {
 	segments := append([]string{"datasets", pathEscape(datasetID)}, parts...)
@@ -255,5 +226,5 @@ func (d *Datasets) Tags(ctx context.Context, datasetID string) ([]*Tag, error) {
 	if err != nil {
 		return nil, err
 	}
-	return buildAll(o.objs("data"), tagFrom), nil
+	return tagsFrom(o), nil
 }

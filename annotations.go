@@ -5,45 +5,6 @@ import (
 	"net/http"
 )
 
-// Annotation is a question and the answer you want given for it.
-type Annotation struct {
-	ID        string
-	Question  string
-	Answer    string
-	HitCount  int
-	CreatedAt *int64
-	Raw       map[string]any
-}
-
-func annotationFrom(o object) Annotation {
-	return Annotation{
-		ID:        o.str("id"),
-		Question:  o.str("question"),
-		Answer:    o.str("answer"),
-		HitCount:  o.int("hit_count"),
-		CreatedAt: o.intPtr("created_at"),
-		Raw:       o.raw(),
-	}
-}
-
-// AnnotationReplyJob is the indexing job that turns annotation reply on or
-// off. Enabling it embeds every annotation, which takes time — so Dify
-// answers with a job rather than a result.
-type AnnotationReplyJob struct {
-	ID     string
-	Status string
-	Error  string
-}
-
-// Finished reports whether the job is over, either way.
-func (j *AnnotationReplyJob) Finished() bool {
-	switch j.Status {
-	case "completed", "failed", "error":
-		return true
-	}
-	return false
-}
-
 // Annotations are this app's annotations, and the reply setting that uses
 // them.
 type Annotations struct{ api port }
@@ -101,14 +62,6 @@ type ReplySettings struct {
 	EmbeddingModel    string
 	// ScoreThreshold is the similarity an annotation must reach to be used.
 	ScoreThreshold float64
-}
-
-func jobFrom(o object, id string) *AnnotationReplyJob {
-	return &AnnotationReplyJob{
-		ID:     firstNonZero(id, firstNonZero(o.str("job_id"), o.str("id"))),
-		Status: firstNonZero(o.str("job_status"), o.str("status")),
-		Error:  o.str("error_msg"),
-	}
 }
 
 // SetReply turns annotation reply on or off. Enabling it re-embeds every
