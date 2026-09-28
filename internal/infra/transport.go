@@ -37,7 +37,8 @@ const (
 	MaxRateLimitWait = 60 * time.Second
 )
 
-// Option configures a client. The same options serve App and Knowledge.
+// Option configures a client. The same options serve App, Knowledge and
+// Management; each refuses the ones that name another's credential.
 type Option func(*config)
 
 type config struct {
@@ -50,6 +51,10 @@ type config struct {
 	retryDelay time.Duration
 	user       string
 	logger     *slog.Logger
+
+	host         string
+	consoleToken *string
+	csrfToken    *string
 }
 
 // WithAPIKey sets the key. Left out, it is read from the environment.
@@ -100,6 +105,8 @@ type Transport struct {
 	retryDelay time.Duration
 	user       string
 	logger     *slog.Logger
+	// session is set for a console client, and replaces Key.
+	session *session
 	// Sleep waits between attempts. A field so tests do not wait.
 	Sleep func(ctx context.Context, d time.Duration) error
 }
@@ -113,9 +120,16 @@ func NewTransport(opts []Option, keyEnv ...string) (*Transport, error) {
 	for _, opt := range opts {
 		opt(&c)
 	}
+	if c.consoleToken != nil || c.csrfToken != nil {
+		return nil, kernel.ArgError("WithConsoleToken and WithCSRFToken are a console session, for dify.NewManagement. An app or a knowledge base takes a Service-API key: WithAPIKey")
+	}
 	key, err := resolveKey(c.apiKey, c.keyFunc, keyEnv...)
 	if err != nil {
 		return nil, err
+	}
+	base := c.baseURL
+	if base == "" && c.host != "" {
+		base = strings.TrimRight(c.host, "/") + "/v1"
 	}
 	h := c.httpClient
 	if h == nil {
@@ -129,7 +143,7 @@ func NewTransport(opts []Option, keyEnv ...string) (*Transport, error) {
 	}
 	return &Transport{
 		Key:        key,
-		baseURL:    ResolveBaseURL(c.baseURL),
+		baseURL:    ResolveBaseURL(base),
 		http:       h,
 		timeout:    c.timeout,
 		maxRetries: c.maxRetries,
@@ -178,7 +192,7 @@ func (t *Transport) send(ctx context.Context, r *port.Request) (*http.Response, 
 		return nil, nil, err
 	}
 	var key string
-	if !r.NoAuth {
+	if !r.NoAuth && t.session == nil {
 		if key, err = t.Key.reveal(ctx); err != nil {
 			return nil, nil, err
 		}
@@ -188,6 +202,10 @@ func (t *Transport) send(ctx context.Context, r *port.Request) (*http.Response, 
 		target += "?" + r.Query.Encode()
 	}
 
+	// A console session is renewed at most once per request: a second 401 is
+	// the session being refused, not having expired.
+	renewed := false
+	var renewErr error
 	for attempt := 0; ; attempt++ {
 		// Each attempt gets its own deadline, unless the caller set one.
 		actx, cancel := ctx, context.CancelFunc(func() {})
@@ -219,7 +237,12 @@ func (t *Transport) send(ctx context.Context, r *port.Request) (*http.Response, 
 		if contentType != "" {
 			req.Header.Set("Content-Type", contentType)
 		}
-		if !r.NoAuth {
+		var carried string
+		switch {
+		case r.NoAuth:
+		case t.session != nil:
+			carried = t.session.apply(req)
+		default:
 			req.Header.Set("Authorization", "Bearer "+key)
 		}
 		req.Header.Set("User-Agent", UserAgent())
@@ -270,7 +293,21 @@ func (t *Transport) send(ctx context.Context, r *port.Request) (*http.Response, 
 			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 			resp.Body.Close()
 			cancel()
-			return nil, nil, apiErrorFrom(resp, raw, r.Form != nil && r.Form.File != nil)
+			e := apiErrorFrom(resp, raw, r.Form != nil && r.Form.File != nil)
+			if resp.StatusCode == http.StatusUnauthorized && t.session != nil && !r.NoAuth {
+				if !renewed && t.session.canRefresh() {
+					// Dify refused the request, so there is nothing it might
+					// have done: renewing and sending again is safe for any
+					// method.
+					renewed = true
+					if renewErr = t.refresh(ctx, carried); renewErr == nil {
+						continue
+					}
+					t.logger.WarnContext(ctx, "dify console session could not be renewed", "error", renewErr)
+				}
+				explainConsole(e, renewErr)
+			}
+			return nil, nil, e
 		}
 
 		if r.Stream {
@@ -303,7 +340,12 @@ func (t *Transport) Stream(ctx context.Context, r *port.Request) (io.ReadCloser,
 
 func (t *Transport) Endpoint(path string) string { return t.baseURL + path }
 
-func (t *Transport) MaskedKey() string { return t.Key.String() }
+func (t *Transport) MaskedKey() string {
+	if t.session != nil {
+		return t.session.masked()
+	}
+	return t.Key.String()
+}
 
 // Call sends a request and decodes a JSON answer into a map. Numbers are kept
 // as json.Number so an id-like integer does not lose digits as a float.

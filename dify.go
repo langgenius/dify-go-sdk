@@ -566,7 +566,7 @@ type KeyFunc = infra.KeyFunc
 //
 // Dify issues keys with a type prefix (app-, dataset-), which is kept so a
 // masked key is still identifiable.
-func MaskSecret(value string) string { return infra.MaskSecret(value) }
+func MaskSecret(value string) string { return kernel.MaskSecret(value) }
 
 // internal/infra/transport.go
 
@@ -686,3 +686,220 @@ type TransportError = kernel.TransportError
 // it. It matches ErrValidation, the same as a 422 from Dify, because to the
 // caller both mean "these arguments will not do".
 type ArgumentError = kernel.ArgumentError
+
+// internal/usecase/management.go
+
+// Management is the workspace, from an account's side: creating, publishing
+// and deleting apps, minting their keys, and what the workspace has installed.
+//
+// It talks to the console API, which authenticates as an account rather than
+// as an app — a credential to the whole account, since Dify has nothing
+// narrower. That is why it is a client of its own and not more fields on App:
+//
+//	m, err := dify.LoginManagement(ctx, email, password, dify.WithHost("http://localhost"))
+//	d, err := m.Apps.Deploy(ctx, dsl, nil)
+//	if err := d.Err(dify.StageRunnable); err != nil { ... }
+//	app, err := m.AppClient(d.APIKey, "alice")
+//
+// A Management is safe for concurrent use. A session from LoginManagement is
+// renewed when it expires; one from tokens is not, since a login is what
+// hands out the refresh token.
+type Management = usecase.Management
+
+// internal/usecase/management_apps.go
+
+// Apps are the workspace's apps, and the steps between a DSL document and a
+// run.
+//
+// Dify keeps three things apart: importing writes a draft, publishing makes a
+// version live, and the Service API runs the live version with a key. Import,
+// Publish and Keys.Create are those steps; Deploy does all three and reports
+// each as its own fact.
+type Apps = usecase.Apps
+
+// AppListParams narrow the workspace's apps. Zero values take Dify's defaults.
+type AppListParams = usecase.AppListParams
+
+// ImportParams are the optional parts of importing a DSL.
+type ImportParams = usecase.ImportParams
+
+// DeployParams choose which of Deploy's steps happen.
+type DeployParams = usecase.DeployParams
+
+// DraftRunParams are the optional parts of running a draft.
+type DraftRunParams = usecase.DraftRunParams
+
+// AppKeys are an app's Service-API keys.
+//
+// Dify shows a key once, when it is minted, and an app holds ten. There is no
+// reading one back — the listing masks the token — so mint one, keep it, and
+// revoke it when done; a leaked key fills the cap and the error never says
+// which ones to revoke.
+type AppKeys = usecase.AppKeys
+
+// Triggers are the ways a published workflow starts by itself: a schedule, a
+// webhook, a plugin event. A trigger node in a draft is only a drawing; Dify
+// makes the trigger, and a webhook's URL, when the workflow publishes.
+type Triggers = usecase.Triggers
+
+// ManagedApp is one app from the account's side: what management knows of it,
+// and a way to call it.
+type ManagedApp = usecase.ManagedApp
+
+// internal/usecase/management_workspace.go
+
+// Agents are the workspace's Agents. Dify keeps them on a roster of their own,
+// off the app list, and an Agent publishes there rather than as a workflow.
+type Agents = usecase.Agents
+
+// Pipelines are the workspace's knowledge pipelines.
+//
+// A pipeline is not an app: Dify serves it from /rag/pipelines, its DSL is
+// kind: rag_pipeline at version 0.1.0, and importing one creates the knowledge
+// base it fills. So two ids come back — the pipeline's and the knowledge
+// base's — and deleting the knowledge base is what deletes both.
+type Pipelines = usecase.Pipelines
+
+// PipelineImportParams are the optional parts of importing a pipeline.
+type PipelineImportParams = usecase.PipelineImportParams
+
+// PipelineDeployParams choose which of a pipeline deploy's steps happen.
+type PipelineDeployParams = usecase.PipelineDeployParams
+
+// WorkspaceModels are what the workspace can call, and whether the credentials
+// for it are in place.
+type WorkspaceModels = usecase.WorkspaceModels
+
+// Tools are the tool providers and plugins installed in the workspace.
+type Tools = usecase.Tools
+
+// Skills are the workspace's agent skills.
+type Skills = usecase.Skills
+
+// SkillImportParams are the optional parts of importing a skill.
+type SkillImportParams = usecase.SkillImportParams
+
+// DatasetKeys are the workspace's knowledge-base API keys: what
+// dify.NewKnowledge takes. A workspace holds ten, and a listing masks them,
+// so mint one when needed and revoke it when done.
+type DatasetKeys = usecase.DatasetKeys
+
+// internal/entity/model_management.go
+
+// Stage is a one-word summary of how far a deploy got, for printing and for
+// Deployment.Err. It is derived from the separate facts on a Deployment, never
+// stored: an earlier design kept one stage and let a failed import followed by
+// a successful publish read as runnable.
+type Stage = entity.Stage
+
+const (
+	// StageUnknown is a request that went out with no answer back. What Dify
+	// did is unknown, so neither retrying nor cleaning up is obviously right.
+	StageUnknown = entity.StageUnknown
+	// StageNotImported is a document Dify refused, or held for confirmation:
+	// no draft exists.
+	StageNotImported = entity.StageNotImported
+	// StageDrafted is a draft on Dify that nothing runs yet. The Service API
+	// runs the published version.
+	StageDrafted = entity.StageDrafted
+	// StagePublished is a live version with no key in hand to call it with.
+	StagePublished = entity.StagePublished
+	// StageRunnable is published, with a Service-API key in hand.
+	StageRunnable = entity.StageRunnable
+)
+
+// StageError is a deploy that stopped short of the stage it was asked for.
+type StageError = entity.StageError
+
+// Deployment is what an app deploy came to: which steps happened, as separate
+// facts, and where it stopped if it stopped early.
+//
+//	d, err := management.Apps.Deploy(ctx, dsl, nil)
+//	if err := d.Err(dify.StageRunnable); err != nil { ... }
+//
+// A failed step is reported here rather than as the call's error, because a
+// half-done deploy is a state to act on — the app may exist, unpublished — and
+// an error alone would lose which half was done.
+type Deployment = entity.Deployment
+
+// PipelineDeployment is what a knowledge pipeline deploy came to.
+//
+// A pipeline is not an app, and it carries two ids: PipelineID addresses the
+// graph and DatasetID the knowledge base it fills. Deleting the knowledge base
+// is what deletes the pipeline, which is why cleanup needs the second.
+type PipelineDeployment = entity.PipelineDeployment
+
+// AppSummary is an app as the workspace lists it.
+type AppSummary = entity.AppSummary
+
+// APIKey is a Service-API key, for an app or for the workspace's knowledge
+// bases.
+//
+// Dify shows the whole token when the key is minted. A listing of the
+// workspace's dataset keys shows it masked — "datas...3f2a" — and a masked
+// token authenticates as "Access token is invalid". (Dify 1.17 lists an app's
+// keys in full.)
+type APIKey = entity.APIKey
+
+// Trigger is a way a published workflow starts by itself. A trigger node in a
+// draft is only a drawing: Dify makes the trigger when the workflow publishes.
+type Trigger = entity.Trigger
+
+// WebhookTrigger is the endpoint Dify minted for a webhook trigger node.
+type WebhookTrigger = entity.WebhookTrigger
+
+// AgentSummary is an Agent as the workspace's roster reports it. Agents are
+// kept off the app list.
+//
+// ID addresses the Agent on the roster, which is where it publishes; AppID is
+// what every app-shaped call wants — export, delete, keys.
+type AgentSummary = entity.AgentSummary
+
+// PipelineSummary is a knowledge pipeline as the workspace reports it: read off
+// the knowledge base that owns it, since a pipeline has no listing of its own.
+type PipelineSummary = entity.PipelineSummary
+
+// WorkspaceSkill is an agent skill installed in the workspace.
+type WorkspaceSkill = entity.WorkspaceSkill
+
+// ToolProvider is a tool provider installed in the workspace, with its tools.
+type ToolProvider = entity.ToolProvider
+
+// Tool is one tool a provider offers.
+type Tool = entity.Tool
+
+// ToolParameter is one parameter a tool takes. Form is "llm" when the model
+// fills it at run time, and "form" when the workflow sets it.
+type ToolParameter = entity.ToolParameter
+
+// Plugin is a plugin installed in the workspace.
+type Plugin = entity.Plugin
+
+// internal/infra/console.go
+
+const (
+	// EnvConsoleToken is a console session's access token, read by
+	// NewManagement. Named apart from difyctl's DIFY_TOKEN, which holds an
+	// /openapi/v1 bearer — a different credential the console refuses.
+	EnvConsoleToken = infra.EnvConsoleToken
+	// EnvConsoleCSRFToken is the CSRF token that goes with it. Since Dify 1.17
+	// every console request, reads included, needs both.
+	EnvConsoleCSRFToken = infra.EnvConsoleCSRFToken
+	// DefaultConsoleHost is Dify Cloud.
+	DefaultConsoleHost = infra.DefaultConsoleHost
+)
+
+// WithHost sets the Dify host, e.g. http://localhost. NewManagement talks to
+// <host>/console/api; NewApp and NewKnowledge derive <host>/v1 from it unless
+// WithBaseURL says otherwise. Left out, it is DIFY_HOST, then Dify Cloud.
+func WithHost(host string) Option { return infra.WithHost(host) }
+
+// WithConsoleToken sets a console session's access token. Left out, it is read
+// from DIFY_CONSOLE_TOKEN. dify.LoginManagement obtains one from an email and
+// password instead.
+func WithConsoleToken(token string) Option { return infra.WithConsoleToken(token) }
+
+// WithCSRFToken sets the CSRF token that goes with a console access token.
+// Left out, it is read from DIFY_CONSOLE_CSRF_TOKEN. A Dify before 1.17 needs
+// none; since 1.17 every request is refused without it.
+func WithCSRFToken(token string) Option { return infra.WithCSRFToken(token) }
