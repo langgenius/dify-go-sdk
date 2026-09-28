@@ -68,7 +68,7 @@ func (f *fakeDify) app(t *testing.T, opts ...Option) *App {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire(a.api).sleep = func(ctx context.Context, d time.Duration) error { return ctx.Err() }
+	wire(appPort(a)).sleep = func(ctx context.Context, d time.Duration) error { return ctx.Err() }
 	return a
 }
 

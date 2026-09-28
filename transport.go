@@ -137,6 +137,18 @@ func newTransport(opts []Option, keyEnv ...string) (*transport, error) {
 	}, nil
 }
 
+// newProbeTransport sends without a credential and gives up quickly: it is
+// for asking whether a host is a Dify at all.
+func newProbeTransport(baseURL string) *transport {
+	return &transport{
+		baseURL: resolveBaseURL(baseURL),
+		http:    &http.Client{},
+		timeout: 5 * time.Second,
+		logger:  newDiscardLogger(),
+		sleep:   sleepCtx,
+	}
+}
+
 // who is the end-user identifier for a call.
 func (t *transport) who(user string) (string, error) {
 	if user != "" {
@@ -234,7 +246,7 @@ func (t *transport) send(ctx context.Context, r *request) (*http.Response, []byt
 			if safe {
 				retried = attempt
 			}
-			return nil, nil, &TransportError{Method: r.method, Path: r.path, Sent: sent, Retried: retried, Err: err, timeout: timedOut}
+			return nil, nil, newTransportError(r.method, r.path, sent, retried, err, timedOut)
 		}
 		t.logger.DebugContext(ctx, "dify response", "method", r.method, "path", r.path, "status", resp.StatusCode)
 
@@ -269,7 +281,7 @@ func (t *transport) send(ctx context.Context, r *request) (*http.Response, []byt
 		cancel()
 		if err != nil {
 			// The status line arrived, so the request was acted on. Not retried.
-			return nil, nil, &TransportError{Method: r.method, Path: r.path, Sent: true, Err: err, timeout: isTimeout(err)}
+			return nil, nil, newTransportError(r.method, r.path, true, 0, err, isTimeout(err))
 		}
 		return resp, raw, nil
 	}
@@ -351,7 +363,7 @@ func apiErrorFrom(resp *http.Response, raw []byte, upload bool) *APIError {
 	}
 	switch resp.StatusCode {
 	case http.StatusBadRequest, http.StatusRequestEntityTooLarge, http.StatusUnsupportedMediaType:
-		e.isUpload = upload
+		markUpload(e, upload)
 	}
 	return e
 }

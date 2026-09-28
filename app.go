@@ -54,14 +54,33 @@ func (a *App) String() string {
 // GoString keeps %#v from printing the key.
 func (a *App) GoString() string { return a.String() }
 
+// newAppOn builds an App whose every resource sends through api.
+func newAppOn(api port) *App {
+	return &App{
+		api:         api,
+		Chat:        &Chat{Messages: &Messages{api}, Conversations: &Conversations{api}},
+		Workflows:   &Workflows{Runs: &WorkflowRuns{api}},
+		Completions: &Completions{api},
+		Files:       &Files{api},
+		Annotations: &Annotations{api},
+		Audio:       &Audio{api},
+		Forms:       &Forms{api},
+	}
+}
+
+// appPort is the port behind an App, for tests that reach the transport.
+func appPort(a *App) port { return a.api }
+
 // ServerInfo asks this client's Dify what it is. The Service API's index
 // takes no credential and is the one place the running version is reliably
 // reported: /openapi/v1/_version is off unless OPENAPI_ENABLED is set, and
 // /console/api/version reports the latest released version rather than the
 // one you are talking to.
-func (a *App) ServerInfo(ctx context.Context) (*ServerInfo, error) { return serverInfo(ctx, a.api) }
+func (a *App) ServerInfo(ctx context.Context) (*ServerInfo, error) {
+	return fetchServerInfo(ctx, a.api)
+}
 
-func serverInfo(ctx context.Context, api port) (*ServerInfo, error) {
+func fetchServerInfo(ctx context.Context, api port) (*ServerInfo, error) {
 	o, err := api.call(ctx, &request{method: http.MethodGet, path: "/", noAuth: true})
 	if err != nil {
 		return nil, err

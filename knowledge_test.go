@@ -18,7 +18,7 @@ func knowledgeClient(t *testing.T, f *fakeDify, opts ...Option) *Knowledge {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire(k.api).sleep = func(ctx context.Context, d time.Duration) error { return ctx.Err() }
+	wire(knowledgePort(k)).sleep = func(ctx context.Context, d time.Duration) error { return ctx.Err() }
 	return k
 }
 
@@ -34,7 +34,7 @@ func TestNewKnowledgeReadsTheDatasetKeyBeforeFallingBackToTheAppKey(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := wire(k.api).key.String(); got == "" {
+	if got := wire(knowledgePort(k)).key.String(); got == "" {
 		t.Fatal("expected a key resolved from DIFY_API_KEY")
 	}
 
@@ -43,7 +43,7 @@ func TestNewKnowledgeReadsTheDatasetKeyBeforeFallingBackToTheAppKey(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := wire(k2.api).key.String(), MaskSecret("dataset-preferred-key-111111"); got != want {
+	if got, want := wire(knowledgePort(k2)).key.String(), MaskSecret("dataset-preferred-key-111111"); got != want {
 		t.Fatalf("got %s, want the dataset key masked as %s", got, want)
 	}
 }

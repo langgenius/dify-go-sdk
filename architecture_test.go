@@ -36,6 +36,7 @@ var layers = map[string]layer{
 	"shape.go":  kernel,
 	"errors.go": kernel,
 	"clock.go":  kernel,
+	"zero.go":   kernel,
 
 	"model_app.go":       entity,
 	"model_knowledge.go": entity,

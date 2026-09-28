@@ -57,7 +57,7 @@ func (c *Completions) Stream(ctx context.Context, inputs map[string]any, p *Comp
 	if err != nil {
 		return nil, err
 	}
-	return &MessageStream{newEventStream(events, p == nil || !p.KeepErrors)}, nil
+	return newMessageStream(events, p == nil || !p.KeepErrors), nil
 }
 
 // Stop stops a completion that is still being written, by its TaskID.

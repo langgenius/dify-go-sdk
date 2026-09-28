@@ -87,7 +87,7 @@ func (m *Messages) Stream(ctx context.Context, query string, p *MessageParams) (
 	if err != nil {
 		return nil, err
 	}
-	return &MessageStream{newEventStream(events, p == nil || !p.KeepErrors)}, nil
+	return newMessageStream(events, p == nil || !p.KeepErrors), nil
 }
 
 // HistoryParams narrow a conversation's history.

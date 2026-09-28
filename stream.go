@@ -372,6 +372,16 @@ type eventStream struct {
 	used         bool
 }
 
+// newMessageStream and newWorkflowRunStream are how a resource opens one of
+// the two streams; the event stream inside them is not its business.
+func newMessageStream(body io.ReadCloser, raiseOnError bool) *MessageStream {
+	return &MessageStream{newEventStream(body, raiseOnError)}
+}
+
+func newWorkflowRunStream(body io.ReadCloser, raiseOnError bool) *WorkflowRunStream {
+	return &WorkflowRunStream{newEventStream(body, raiseOnError)}
+}
+
 func newEventStream(body io.ReadCloser, raiseOnError bool) *eventStream {
 	return &eventStream{body: body, raiseOnError: raiseOnError, w: newWatcher()}
 }

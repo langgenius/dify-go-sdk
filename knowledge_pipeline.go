@@ -177,7 +177,7 @@ func (pl *Pipeline) StreamDraft(ctx context.Context, in PipelineRunInput) (*Work
 	if err != nil {
 		return nil, wrapNoPipeline(pl.datasetID, err)
 	}
-	return &WorkflowRunStream{newEventStream(events, true)}, nil
+	return newWorkflowRunStream(events, true), nil
 }
 
 // pipelinePart is the part a pipeline upload sends, with the extension Dify

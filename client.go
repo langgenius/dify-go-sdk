@@ -2,8 +2,6 @@ package dify
 
 import (
 	"context"
-	"net/http"
-	"time"
 )
 
 // The constructors are the one place that knows a *transport stands behind
@@ -18,16 +16,7 @@ func NewApp(opts ...Option) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &App{
-		api:         t,
-		Chat:        &Chat{Messages: &Messages{t}, Conversations: &Conversations{t}},
-		Workflows:   &Workflows{Runs: &WorkflowRuns{t}},
-		Completions: &Completions{t},
-		Files:       &Files{t},
-		Annotations: &Annotations{t},
-		Audio:       &Audio{t},
-		Forms:       &Forms{t},
-	}, nil
+	return newAppOn(t), nil
 }
 
 // OpenApp builds a client and asks Dify what the app is before returning it.
@@ -50,14 +39,7 @@ func OpenApp(ctx context.Context, opts ...Option) (*App, *AppInfo, error) {
 // and a wrong key look the same once authenticated calls start. baseURL is
 // the Service API root; empty resolves it the way NewApp does.
 func Probe(ctx context.Context, baseURL string) (*ServerInfo, error) {
-	t := &transport{
-		baseURL: resolveBaseURL(baseURL),
-		http:    &http.Client{},
-		timeout: 5 * time.Second,
-		logger:  newDiscardLogger(),
-		sleep:   sleepCtx,
-	}
-	return serverInfo(ctx, t)
+	return fetchServerInfo(ctx, newProbeTransport(baseURL))
 }
 
 // NewKnowledge builds a client for the workspace's knowledge bases. The key
@@ -69,5 +51,5 @@ func NewKnowledge(opts ...Option) (*Knowledge, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Knowledge{api: t, Datasets: &Datasets{t}, Tags: &Tags{t}}, nil
+	return newKnowledgeOn(t), nil
 }

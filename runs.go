@@ -69,7 +69,7 @@ func (r *WorkflowRuns) Stream(ctx context.Context, inputs map[string]any, p *Run
 	if err != nil {
 		return nil, err
 	}
-	return &WorkflowRunStream{newEventStream(events, p == nil || !p.KeepErrors)}, nil
+	return newWorkflowRunStream(events, p == nil || !p.KeepErrors), nil
 }
 
 // Retrieve reads a run back by its id. A paused run read this way reports
@@ -107,7 +107,7 @@ func (r *WorkflowRuns) Events(ctx context.Context, runID string, p *EventsParams
 	if err != nil {
 		return nil, err
 	}
-	return &WorkflowRunStream{newEventStream(events, true)}, nil
+	return newWorkflowRunStream(events, true), nil
 }
 
 // Stop stops a run that is still going, by its TaskID — which is not the

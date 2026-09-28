@@ -31,6 +31,15 @@ type Knowledge struct {
 	Tags *Tags
 }
 
+// newKnowledgeOn builds a Knowledge whose every resource sends through api.
+func newKnowledgeOn(api port) *Knowledge {
+	return &Knowledge{api: api, Datasets: &Datasets{api}, Tags: &Tags{api}}
+}
+
+// knowledgePort is the port behind a Knowledge, for tests that reach the
+// transport.
+func knowledgePort(k *Knowledge) port { return k.api }
+
 // BaseURL is the Service API root this client sends to.
 func (k *Knowledge) BaseURL() string { return k.api.endpoint("") }
 

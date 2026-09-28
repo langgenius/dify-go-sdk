@@ -202,11 +202,3 @@ func spent(costs map[string]Amount) string {
 	}
 	return strings.Join(parts, ", ")
 }
-
-func firstNonZero[T comparable](a, b T) T {
-	var zero T
-	if a != zero {
-		return a
-	}
-	return b
-}

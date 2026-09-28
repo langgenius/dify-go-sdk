@@ -164,3 +164,11 @@ func isIdempotent(method string) bool {
 	}
 	return false
 }
+
+// newTransportError and markUpload set what is kept off the exported fields
+// of TransportError and APIError, for the transport, which builds both.
+func newTransportError(method, path string, sent bool, retried int, err error, timeout bool) *TransportError {
+	return &TransportError{Method: method, Path: path, Sent: sent, Retried: retried, Err: err, timeout: timeout}
+}
+
+func markUpload(e *APIError, upload bool) { e.isUpload = upload }

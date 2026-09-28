@@ -279,7 +279,7 @@ func TestLiveDisablingAnnotationReplyStillNeedsTheEmbeddingFields(t *testing.T) 
 	// Checks the claim SetReply's signature rests on: Dify validates the same
 	// payload for enable and disable, so an empty disable is refused.
 	app := liveApp(t, live.chatKey)
-	_, err := wire(app.api).call(liveCtx(t), &request{method: http.MethodPost, path: "/apps/annotation-reply/disable", body: map[string]any{}})
+	_, err := wire(appPort(app)).call(liveCtx(t), &request{method: http.MethodPost, path: "/apps/annotation-reply/disable", body: map[string]any{}})
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode < 400 || apiErr.StatusCode >= 500 {
 		t.Errorf("an empty disable should be refused by Dify, got %v", err)
