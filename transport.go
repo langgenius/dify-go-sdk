@@ -356,16 +356,6 @@ func apiErrorFrom(resp *http.Response, raw []byte, upload bool) *APIError {
 	return e
 }
 
-// isIdempotent reports whether repeating a request has the same effect as
-// making it once, so a retry after it was sent cannot duplicate anything.
-func isIdempotent(method string) bool {
-	switch strings.ToUpper(method) {
-	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodPut, http.MethodDelete:
-		return true
-	}
-	return false
-}
-
 func isTimeout(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
@@ -403,17 +393,6 @@ func retryAfter(header string) (time.Duration, bool) {
 		return max(0, time.Until(when)), true
 	}
 	return 0, false
-}
-
-func sleepCtx(ctx context.Context, d time.Duration) error {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
 }
 
 func drain(resp *http.Response) {

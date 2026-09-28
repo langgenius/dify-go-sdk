@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -152,4 +153,14 @@ func (e *ArgumentError) Is(target error) bool { return target == ErrValidation }
 
 func argError(format string, args ...any) error {
 	return &ArgumentError{Message: fmt.Sprintf(format, args...)}
+}
+
+// isIdempotent reports whether repeating a request has the same effect as
+// making it once, so a retry after it was sent cannot duplicate anything.
+func isIdempotent(method string) bool {
+	switch strings.ToUpper(method) {
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodPut, http.MethodDelete:
+		return true
+	}
+	return false
 }
