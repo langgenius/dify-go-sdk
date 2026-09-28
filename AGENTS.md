@@ -46,20 +46,30 @@ helpers and `wf.to_yaml()`.
 
 ## Shape of the package
 
-One package, `dify`. A client holds the transport; resources hold verbs for
-one noun (`app.Chat.Messages`, `app.Workflows.Runs`, `knowledge.Datasets`).
+One package, `dify`, so callers write `dify.X`. Resources hold verbs for one
+noun (`app.Chat.Messages`, `app.Workflows.Runs`, `knowledge.Datasets`).
 Required arguments are positional, optional ones go in a `*XxxParams` struct
 where nil is allowed. Every typed result keeps the whole answer on `Raw`.
 
-| | |
-|---|---|
-| `transport.go` | options, retries, 429 handling, error mapping, stream idle timeout |
-| `shape.go` | lenient reads of Dify's JSON (`object`), because its types drift |
-| `paging.go` | `Page[T]`, `All`/`Collect`, and the page-number vs cursor builders |
-| `stream.go` | SSE decoding, the `watcher` that accumulates a run, the two streams |
-| `results.go`, `usage.go` | what calls return; `Amount` keeps prices exact |
-| `app.go` and one file per resource | the App client |
-| `knowledge*.go` | the Knowledge client |
+Inside, the files are layered, and a layer uses only its own and the inner
+ones. With one package the compiler cannot hold that line, so
+`architecture_test.go` does: it type-checks the package and fails on a
+crossing, on a resource reading Dify's JSON itself, and on a file in no layer.
+
+| Layer | Files | May use |
+|---|---|---|
+| kernel | `shape.go` (lenient reads of Dify's JSON, `object`), `errors.go`, `clock.go` | kernel |
+| entity | `model_app.go`, `model_knowledge.go`, `usage.go` (`Amount` keeps prices exact) | kernel |
+| codec | `decode_app.go`, `decode_knowledge.go`; `stream.go` (SSE, the `watcher` that accumulates a run); `paging.go` (`Page[T]`, page-number vs cursor builders) | kernel, entity |
+| port | `port.go`: the `port` interface, `request`, `params` | kernel, entity |
+| use case | `app.go`, `knowledge.go` and one file per resource: verbs, params, which request each sends | all of the above |
+| infra | `transport.go` (options, retries, 429, error mapping, stream idle timeout), `secret.go`, `version.go` | kernel, entity, codec, port |
+| root | `client.go`: `NewApp`, `OpenApp`, `NewKnowledge`, `Probe` | everything |
+
+A resource talks to Dify only through `port`, and hands what comes back to a
+`xxxFrom` decoder or returns it whole with `raw()`: a field read, or a
+fallback between two spellings of one, goes in a `decode_*.go` file. A new
+file goes into `layers` in `architecture_test.go` and into this table.
 
 ## Rules
 
