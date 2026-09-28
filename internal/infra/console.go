@@ -72,11 +72,17 @@ type session struct {
 	// spellings, since which one this Dify reads is not knowable from here.
 	accessNames, csrfNames []string
 	refreshName            string
+	// generation counts renewals. A request records the one it was sent
+	// under, which is how a refresh tells that another request already
+	// renewed the session: comparing tokens cannot, since Dify's access token
+	// carries nothing but the account and an expiry in whole seconds, and a
+	// renewal within the second of the login hands back the same one.
+	generation int
 }
 
-// apply puts the session on a request, and returns the access token it used,
-// so a refresh can tell whether someone else already renewed it.
-func (s *session) apply(req *http.Request) string {
+// apply puts the session on a request, and returns the generation it was
+// sent under, so a refresh can tell whether someone else already renewed it.
+func (s *session) apply(req *http.Request) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// The bearer header is what a Dify before 1.17 reads; later ones read
@@ -93,7 +99,7 @@ func (s *session) apply(req *http.Request) string {
 		req.Header.Set(csrfHeader, s.csrf)
 	}
 	req.Header.Set("Cookie", strings.Join(cookies, "; "))
-	return s.access
+	return s.generation
 }
 
 func (s *session) tokens() (string, string) {
@@ -126,8 +132,9 @@ func (s *session) canRefresh() bool {
 	return s.refresh != ""
 }
 
-// take reads a login's or a refresh's Set-Cookie headers into the session.
-func (s *session) take(cookies []*http.Cookie) {
+// take reads a login's or a refresh's Set-Cookie headers into the session,
+// and reports whether an access token was among them.
+func (s *session) take(cookies []*http.Cookie) (gotAccess bool) {
 	for _, c := range cookies {
 		if c.Value == "" {
 			continue
@@ -135,12 +142,14 @@ func (s *session) take(cookies []*http.Cookie) {
 		switch strings.TrimPrefix(c.Name, hostPrefix) {
 		case cookieAccess:
 			s.access, s.accessNames = c.Value, []string{c.Name}
+			gotAccess = true
 		case cookieCSRF:
 			s.csrf, s.csrfNames = c.Value, []string{c.Name}
 		case cookieRefresh:
 			s.refresh, s.refreshName = c.Value, c.Name
 		}
 	}
+	return gotAccess
 }
 
 // NewConsoleTransport builds the transport for a console session given as
@@ -297,14 +306,14 @@ func serviceBaseFor(host string) string {
 	return host + "/v1"
 }
 
-// refresh renews the session with its refresh token. seen is the access token
-// the failed request carried: if it has changed, another request already
-// renewed the session and there is nothing to do.
-func (t *Transport) refresh(ctx context.Context, seen string) error {
+// refresh renews the session with its refresh token. seen is the generation
+// the failed request was sent under: if it has moved on, another request
+// already renewed the session and there is nothing to do.
+func (t *Transport) refresh(ctx context.Context, seen int) error {
 	s := t.session
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.access != seen {
+	if s.generation != seen {
 		return nil
 	}
 	if s.refresh == "" {
@@ -335,23 +344,26 @@ func (t *Transport) refresh(ctx context.Context, seen string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("refresh answered %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
-	before := s.access
-	s.take(resp.Cookies())
-	if s.access == before {
+	// What says the renewal happened is a token arriving, not a different
+	// one: the same access token comes back when the renewal falls in the
+	// second the old one was issued.
+	renewed := s.take(resp.Cookies())
+	if !renewed {
 		// Before 1.17 the renewed pair came back in the body, as a login's did.
 		if o, err := decodeObject(raw); err == nil {
 			data := o.Obj("data")
 			if token := data.Str("access_token"); token != "" {
-				s.access = token
+				s.access, renewed = token, true
 			}
 			if token := data.Str("refresh_token"); token != "" {
 				s.refresh = token
 			}
 		}
 	}
-	if s.access == before {
-		return fmt.Errorf("refresh answered without a new access token")
+	if !renewed {
+		return fmt.Errorf("refresh answered 200 without an access token, in neither a cookie nor the body")
 	}
+	s.generation++
 	t.logger.DebugContext(ctx, "dify console session refreshed", "at", time.Now().Format(time.RFC3339))
 	return nil
 }
@@ -407,6 +419,8 @@ func (t *Transport) Forget() {
 // ForceRefresh renews the session now rather than on a 401, for a test that
 // cannot wait an hour for the token to expire.
 func (t *Transport) ForceRefresh(ctx context.Context) error {
-	access, _ := t.Tokens()
-	return t.refresh(ctx, access)
+	t.session.mu.Lock()
+	seen := t.session.generation
+	t.session.mu.Unlock()
+	return t.refresh(ctx, seen)
 }

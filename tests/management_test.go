@@ -783,3 +783,43 @@ func TestTagsFilterAnAppListingAsARepeatedParameter(t *testing.T) {
 		t.Errorf("query %v", q)
 	}
 }
+
+func TestARenewalThatHandsBackTheSameAccessTokenIsStillARenewal(t *testing.T) {
+	// Dify's access token holds the account and an expiry in whole seconds,
+	// so renewing within the second of a login returns the very same token.
+	// Judging a renewal by the token changing called that a failure; the live
+	// harness found it on 1.17.1.
+	var refreshed atomic.Int32
+	f := newConsole(t, routes{
+		"POST /login": func(w http.ResponseWriter, r *http.Request) {
+			http.SetCookie(w, &http.Cookie{Name: "access_token", Value: "same"})
+			http.SetCookie(w, &http.Cookie{Name: "refresh_token", Value: "r1"})
+			writeJSON(w, 200, map[string]any{"result": "success"})
+		},
+		"POST /refresh-token": func(w http.ResponseWriter, r *http.Request) {
+			// Dify deletes a refresh token when it rotates it.
+			if c, err := r.Cookie("refresh_token"); err != nil || c.Value != fmt.Sprintf("r%d", refreshed.Load()+1) {
+				writeJSON(w, 401, map[string]any{"result": "fail", "message": "Invalid refresh token"})
+				return
+			}
+			refreshed.Add(1)
+			http.SetCookie(w, &http.Cookie{Name: "access_token", Value: "same"})
+			http.SetCookie(w, &http.Cookie{Name: "refresh_token", Value: fmt.Sprintf("r%d", refreshed.Load()+1)})
+			writeJSON(w, 200, map[string]any{"result": "success"})
+		},
+	})
+	m, err := dify.LoginManagement(context.Background(), "ops@example.com", "pw", dify.WithHost(f.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wire(usecase.ManagementPort(m)).ForceRefresh(context.Background()); err != nil {
+		t.Fatalf("a renewal answered with the same token: %v", err)
+	}
+	// And a second renewal uses the rotated refresh token, not a spent one.
+	if err := wire(usecase.ManagementPort(m)).ForceRefresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if refreshed.Load() != 2 {
+		t.Errorf("refreshed %d times", refreshed.Load())
+	}
+}

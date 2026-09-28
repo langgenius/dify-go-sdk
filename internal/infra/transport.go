@@ -243,7 +243,7 @@ func (t *Transport) send(ctx context.Context, r *port.Request) (*http.Response, 
 		if contentType != "" {
 			req.Header.Set("Content-Type", contentType)
 		}
-		var carried string
+		var carried int
 		switch {
 		case r.NoAuth:
 		case t.session != nil:
