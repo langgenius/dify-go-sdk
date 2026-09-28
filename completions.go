@@ -16,13 +16,13 @@ type CompletionParams struct {
 
 // Completions are one prompt in, one answer out, no thread. Only a
 // completion-mode app serves these.
-type Completions struct{ t *transport }
+type Completions struct{ api port }
 
 func (c *Completions) body(inputs map[string]any, mode string, p *CompletionParams) (map[string]any, error) {
 	if p == nil {
 		p = &CompletionParams{}
 	}
-	user, err := c.t.who(p.User)
+	user, err := c.api.who(p.User)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +40,7 @@ func (c *Completions) Create(ctx context.Context, inputs map[string]any, p *Comp
 	if err != nil {
 		return nil, err
 	}
-	o, err := c.t.call(ctx, &request{method: http.MethodPost, path: "/completion-messages", body: body})
+	o, err := c.api.call(ctx, &request{method: http.MethodPost, path: "/completion-messages", body: body})
 	if err != nil {
 		return nil, err
 	}
@@ -53,14 +53,14 @@ func (c *Completions) Stream(ctx context.Context, inputs map[string]any, p *Comp
 	if err != nil {
 		return nil, err
 	}
-	resp, _, err := c.t.send(ctx, &request{method: http.MethodPost, path: "/completion-messages", body: body, stream: true})
+	events, err := c.api.stream(ctx, &request{method: http.MethodPost, path: "/completion-messages", body: body})
 	if err != nil {
 		return nil, err
 	}
-	return &MessageStream{newEventStream(resp.Body, p == nil || !p.KeepErrors)}, nil
+	return &MessageStream{newEventStream(events, p == nil || !p.KeepErrors)}, nil
 }
 
 // Stop stops a completion that is still being written, by its TaskID.
 func (c *Completions) Stop(ctx context.Context, taskID, user string) error {
-	return stopTask(ctx, c.t, "/completion-messages/", taskID, user, "completion")
+	return stopTask(ctx, c.api, "/completion-messages/", taskID, user, "completion")
 }

@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"net/textproto"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -149,75 +148,6 @@ func (t *transport) who(user string) (string, error) {
 	return "", argError("Dify needs an end-user identifier for this call. Pass User in the params, or set it once with dify.WithUser(...)")
 }
 
-// request is one call, described so that it can be sent more than once.
-type request struct {
-	method string
-	path   string
-	query  url.Values
-	// body is JSON-encoded. nil sends no body.
-	body any
-	// form, when set, is sent as multipart instead of body.
-	form *multipartForm
-	// stream hands back the response unread, for SSE.
-	stream bool
-	// noAuth leaves the Authorization header off — the Service API index
-	// takes no credential.
-	noAuth bool
-}
-
-type multipartForm struct {
-	fields map[string]string
-	file   *filePart
-}
-
-type filePart struct {
-	field       string
-	name        string
-	contentType string
-	content     []byte
-}
-
-// encode renders the body once, so every attempt sends the same bytes.
-func (r *request) encode() (payload []byte, contentType string, err error) {
-	switch {
-	case r.form != nil:
-		var buf bytes.Buffer
-		w := multipart.NewWriter(&buf)
-		for k, v := range r.form.fields {
-			if err := w.WriteField(k, v); err != nil {
-				return nil, "", err
-			}
-		}
-		if f := r.form.file; f != nil {
-			h := make(textproto.MIMEHeader)
-			h.Set("Content-Disposition", fmt.Sprintf(`form-data; name=%q; filename=%q`, f.field, f.name))
-			if f.contentType != "" {
-				h.Set("Content-Type", f.contentType)
-			} else {
-				h.Set("Content-Type", "application/octet-stream")
-			}
-			part, err := w.CreatePart(h)
-			if err != nil {
-				return nil, "", err
-			}
-			if _, err := part.Write(f.content); err != nil {
-				return nil, "", err
-			}
-		}
-		if err := w.Close(); err != nil {
-			return nil, "", err
-		}
-		return buf.Bytes(), w.FormDataContentType(), nil
-	case r.body != nil:
-		b, err := json.Marshal(r.body)
-		if err != nil {
-			return nil, "", fmt.Errorf("dify: encoding request body: %w", err)
-		}
-		return b, "application/json", nil
-	}
-	return nil, "", nil
-}
-
 // send makes the request, retrying where that is safe, and turns an error
 // status into an *APIError. The returned response is always a success; for a
 // non-stream request its body has been read into the returned bytes.
@@ -344,6 +274,21 @@ func (t *transport) send(ctx context.Context, r *request) (*http.Response, []byt
 		return resp, raw, nil
 	}
 }
+
+// stream sends a request whose answer is an event stream, and hands back the
+// body unread.
+func (t *transport) stream(ctx context.Context, r *request) (io.ReadCloser, error) {
+	r.stream = true
+	resp, _, err := t.send(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Body, nil
+}
+
+func (t *transport) endpoint(path string) string { return t.baseURL + path }
+
+func (t *transport) maskedKey() string { return t.key.String() }
 
 // call sends a request and decodes a JSON answer into a map. Numbers are kept
 // as json.Number so an id-like integer does not lose digits as a float.
@@ -509,35 +454,45 @@ func (discardHandler) Handle(context.Context, slog.Record) error { return nil }
 func (d discardHandler) WithAttrs([]slog.Attr) slog.Handler      { return d }
 func (d discardHandler) WithGroup(string) slog.Handler           { return d }
 
-// params builds a query string, leaving out what was not set. An empty value
-// on the wire is not "unset" to Dify: its typed query models reject ?limit=
-// where they want an int.
-type params url.Values
-
-func (p params) set(key, value string) params {
-	if value != "" {
-		url.Values(p).Set(key, value)
-	}
-	return p
-}
-
-func (p params) setInt(key string, value int) params {
-	if value != 0 {
-		url.Values(p).Set(key, strconv.Itoa(value))
-	}
-	return p
-}
-
-func (p params) setBool(key string, value bool) params {
-	url.Values(p).Set(key, strconv.FormatBool(value))
-	return p
-}
-
-func (p params) values() url.Values { return url.Values(p) }
-
 func newDiscardLogger() *slog.Logger { return slog.New(discardHandler{}) }
 
-// pathEscape makes an id safe to put in a path segment. Ids come back from
-// Dify, but a caller can pass anything, and one with a slash in it would
-// otherwise address a different route.
-func pathEscape(s string) string { return url.PathEscape(s) }
+// encode renders the body once, so every attempt sends the same bytes.
+func (r *request) encode() (payload []byte, contentType string, err error) {
+	switch {
+	case r.form != nil:
+		var buf bytes.Buffer
+		w := multipart.NewWriter(&buf)
+		for k, v := range r.form.fields {
+			if err := w.WriteField(k, v); err != nil {
+				return nil, "", err
+			}
+		}
+		if f := r.form.file; f != nil {
+			h := make(textproto.MIMEHeader)
+			h.Set("Content-Disposition", fmt.Sprintf(`form-data; name=%q; filename=%q`, f.field, f.name))
+			if f.contentType != "" {
+				h.Set("Content-Type", f.contentType)
+			} else {
+				h.Set("Content-Type", "application/octet-stream")
+			}
+			part, err := w.CreatePart(h)
+			if err != nil {
+				return nil, "", err
+			}
+			if _, err := part.Write(f.content); err != nil {
+				return nil, "", err
+			}
+		}
+		if err := w.Close(); err != nil {
+			return nil, "", err
+		}
+		return buf.Bytes(), w.FormDataContentType(), nil
+	case r.body != nil:
+		b, err := json.Marshal(r.body)
+		if err != nil {
+			return nil, "", fmt.Errorf("dify: encoding request body: %w", err)
+		}
+		return b, "application/json", nil
+	}
+	return nil, "", nil
+}

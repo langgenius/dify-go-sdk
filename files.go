@@ -102,12 +102,12 @@ func (u Upload) part(field string, requireType bool) (*filePart, error) {
 }
 
 // Files are the files this app's runs and messages can reference.
-type Files struct{ t *transport }
+type Files struct{ api port }
 
 // Upload uploads a file and returns the reference to it. user empty uses
 // WithUser.
 func (f *Files) Upload(ctx context.Context, file Upload, user string) (*UploadedFile, error) {
-	who, err := f.t.who(user)
+	who, err := f.api.who(user)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +115,7 @@ func (f *Files) Upload(ctx context.Context, file Upload, user string) (*Uploaded
 	if err != nil {
 		return nil, err
 	}
-	o, err := f.t.call(ctx, &request{method: http.MethodPost, path: "/files/upload", form: &multipartForm{fields: map[string]string{"user": who}, file: part}})
+	o, err := f.api.call(ctx, &request{method: http.MethodPost, path: "/files/upload", form: &multipartForm{fields: map[string]string{"user": who}, file: part}})
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func (f *Files) Upload(ctx context.Context, file Upload, user string) (*Uploaded
 // used in a conversation answers "The requested file was not found", which
 // reads like a wrong id when it is not.
 func (f *Files) Download(ctx context.Context, fileID string, asAttachment bool) ([]byte, http.Header, error) {
-	return f.t.bytes(ctx, &request{
+	return f.api.bytes(ctx, &request{
 		method: http.MethodGet,
 		path:   "/files/" + pathEscape(fileID) + "/preview",
 		query:  params{}.setBool("as_attachment", asAttachment).values(),
@@ -139,5 +139,5 @@ func (f *Files) Download(ctx context.Context, fileID string, asAttachment bool) 
 // PreviewURL is where Dify serves a file. Reaching it needs the app's key, so
 // the URL alone is not enough for a browser — use Download.
 func (f *Files) PreviewURL(fileID string) string {
-	return f.t.baseURL + "/files/" + pathEscape(fileID) + "/preview"
+	return f.api.endpoint("/files/" + pathEscape(fileID) + "/preview")
 }

@@ -46,7 +46,7 @@ func (j *AnnotationReplyJob) Finished() bool {
 
 // Annotations are this app's annotations, and the reply setting that uses
 // them.
-type Annotations struct{ t *transport }
+type Annotations struct{ api port }
 
 // AnnotationListParams narrow the annotations.
 type AnnotationListParams struct {
@@ -62,14 +62,14 @@ func (a *Annotations) List(ctx context.Context, p *AnnotationListParams) (*Page[
 	}
 	fetch := func(ctx context.Context, number int) (object, error) {
 		q := params{}.setInt("page", number).setInt("limit", p.Limit).set("keyword", p.Keyword)
-		return a.t.call(ctx, &request{method: http.MethodGet, path: "/apps/annotations", query: q.values()})
+		return a.api.call(ctx, &request{method: http.MethodGet, path: "/apps/annotations", query: q.values()})
 	}
 	return fetchByPage(ctx, annotationFrom, fetch, p.Page)
 }
 
 // Create adds an annotation.
 func (a *Annotations) Create(ctx context.Context, question, answer string) (*Annotation, error) {
-	o, err := a.t.call(ctx, &request{method: http.MethodPost, path: "/apps/annotations", body: map[string]any{"question": question, "answer": answer}})
+	o, err := a.api.call(ctx, &request{method: http.MethodPost, path: "/apps/annotations", body: map[string]any{"question": question, "answer": answer}})
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +79,7 @@ func (a *Annotations) Create(ctx context.Context, question, answer string) (*Ann
 
 // Update replaces an annotation's question and answer.
 func (a *Annotations) Update(ctx context.Context, annotationID, question, answer string) (*Annotation, error) {
-	o, err := a.t.call(ctx, &request{method: http.MethodPut, path: "/apps/annotations/" + pathEscape(annotationID), body: map[string]any{"question": question, "answer": answer}})
+	o, err := a.api.call(ctx, &request{method: http.MethodPut, path: "/apps/annotations/" + pathEscape(annotationID), body: map[string]any{"question": question, "answer": answer}})
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func (a *Annotations) Update(ctx context.Context, annotationID, question, answer
 
 // Delete removes an annotation.
 func (a *Annotations) Delete(ctx context.Context, annotationID string) error {
-	_, err := a.t.call(ctx, &request{method: http.MethodDelete, path: "/apps/annotations/" + pathEscape(annotationID)})
+	_, err := a.api.call(ctx, &request{method: http.MethodDelete, path: "/apps/annotations/" + pathEscape(annotationID)})
 	return err
 }
 
@@ -122,7 +122,7 @@ func (a *Annotations) SetReply(ctx context.Context, enabled bool, s ReplySetting
 		"embedding_model_name":    s.EmbeddingModel,
 		"score_threshold":         s.ScoreThreshold,
 	}
-	o, err := a.t.call(ctx, &request{method: http.MethodPost, path: "/apps/annotation-reply/" + replyAction(enabled), body: body})
+	o, err := a.api.call(ctx, &request{method: http.MethodPost, path: "/apps/annotation-reply/" + replyAction(enabled), body: body})
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +132,7 @@ func (a *Annotations) SetReply(ctx context.Context, enabled bool, s ReplySetting
 // ReplyStatus asks how an enable or disable job is going. enabled says which
 // of the two the job was started by.
 func (a *Annotations) ReplyStatus(ctx context.Context, jobID string, enabled bool) (*AnnotationReplyJob, error) {
-	o, err := a.t.call(ctx, &request{method: http.MethodGet, path: "/apps/annotation-reply/" + replyAction(enabled) + "/status/" + pathEscape(jobID)})
+	o, err := a.api.call(ctx, &request{method: http.MethodGet, path: "/apps/annotation-reply/" + replyAction(enabled) + "/status/" + pathEscape(jobID)})
 	if err != nil {
 		return nil, err
 	}

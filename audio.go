@@ -6,7 +6,7 @@ import (
 )
 
 // Audio is text to speech, and speech to text, for this app.
-type Audio struct{ t *transport }
+type Audio struct{ api port }
 
 // SpeakParams choose what is spoken and how.
 type SpeakParams struct {
@@ -27,7 +27,7 @@ func (a *Audio) Speak(ctx context.Context, p SpeakParams) ([]byte, http.Header, 
 	if p.Text == "" && p.MessageID == "" {
 		return nil, nil, argError("nothing to speak; set SpeakParams.Text or SpeakParams.MessageID")
 	}
-	user, err := a.t.who(p.User)
+	user, err := a.api.who(p.User)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -41,12 +41,12 @@ func (a *Audio) Speak(ctx context.Context, p SpeakParams) ([]byte, http.Header, 
 	if p.Voice != "" {
 		body["voice"] = p.Voice
 	}
-	return a.t.bytes(ctx, &request{method: http.MethodPost, path: "/text-to-audio", body: body})
+	return a.api.bytes(ctx, &request{method: http.MethodPost, path: "/text-to-audio", body: body})
 }
 
 // Transcribe turns recorded speech into text.
 func (a *Audio) Transcribe(ctx context.Context, file Upload, user string) (string, error) {
-	who, err := a.t.who(user)
+	who, err := a.api.who(user)
 	if err != nil {
 		return "", err
 	}
@@ -54,7 +54,7 @@ func (a *Audio) Transcribe(ctx context.Context, file Upload, user string) (strin
 	if err != nil {
 		return "", err
 	}
-	o, err := a.t.call(ctx, &request{method: http.MethodPost, path: "/audio-to-text", form: &multipartForm{fields: map[string]string{"user": who}, file: part}})
+	o, err := a.api.call(ctx, &request{method: http.MethodPost, path: "/audio-to-text", form: &multipartForm{fields: map[string]string{"user": who}, file: part}})
 	if err != nil {
 		return "", err
 	}

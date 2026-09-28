@@ -22,7 +22,7 @@ import (
 //
 // A Knowledge is safe for concurrent use.
 type Knowledge struct {
-	t *transport
+	api port
 
 	// Datasets are the workspace's knowledge bases.
 	Datasets *Datasets
@@ -31,23 +31,11 @@ type Knowledge struct {
 	Tags *Tags
 }
 
-// NewKnowledge builds a client for the workspace's knowledge bases. The key
-// comes from WithAPIKey, then DIFY_DATASET_API_KEY, then DIFY_API_KEY — the
-// fallback is where a single-purpose program keeps a dataset key it never
-// distinguishes from an app key. It sends nothing.
-func NewKnowledge(opts ...Option) (*Knowledge, error) {
-	t, err := newTransport(opts, EnvDatasetAPIKey, EnvAPIKey)
-	if err != nil {
-		return nil, err
-	}
-	return &Knowledge{t: t, Datasets: &Datasets{t}, Tags: &Tags{t}}, nil
-}
-
 // BaseURL is the Service API root this client sends to.
-func (k *Knowledge) BaseURL() string { return k.t.baseURL }
+func (k *Knowledge) BaseURL() string { return k.api.endpoint("") }
 
 func (k *Knowledge) String() string {
-	return fmt.Sprintf("dify.Knowledge(base_url=%q, api_key=%s)", k.t.baseURL, k.t.key)
+	return fmt.Sprintf("dify.Knowledge(base_url=%q, api_key=%s)", k.api.endpoint(""), k.api.maskedKey())
 }
 
 // GoString keeps %#v from printing the key.
@@ -56,13 +44,13 @@ func (k *Knowledge) GoString() string { return k.String() }
 // Documents is the documents of one knowledge base. Bound to a dataset id so
 // it is not repeated on every call.
 func (k *Knowledge) Documents(datasetID string) *Documents {
-	return &Documents{t: k.t, datasetID: datasetID}
+	return &Documents{api: k.api, datasetID: datasetID}
 }
 
 // Pipeline is one knowledge base's RAG pipeline: how documents get in and get
 // indexed. Not every knowledge base has one — see the type's own doc comment.
 func (k *Knowledge) Pipeline(datasetID string) *Pipeline {
-	return &Pipeline{t: k.t, datasetID: datasetID}
+	return &Pipeline{api: k.api, datasetID: datasetID}
 }
 
 // Models is the models of one type the workspace has configured — mostly
@@ -73,7 +61,7 @@ func (k *Knowledge) Pipeline(datasetID string) *Pipeline {
 // *dataset* token: an app key answers "Access token is invalid", which reads
 // like a broken key rather than like the wrong client.
 func (k *Knowledge) Models(ctx context.Context, modelType string) ([]*ModelProvider, error) {
-	o, err := k.t.call(ctx, &request{method: http.MethodGet, path: "/workspaces/current/models/model-types/" + pathEscape(firstNonZero(modelType, "llm"))})
+	o, err := k.api.call(ctx, &request{method: http.MethodGet, path: "/workspaces/current/models/model-types/" + pathEscape(firstNonZero(modelType, "llm"))})
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +76,7 @@ func (k *Knowledge) UploadForPipeline(ctx context.Context, file Upload) (map[str
 	if err != nil {
 		return nil, err
 	}
-	o, err := k.t.call(ctx, &request{method: http.MethodPost, path: "/datasets/pipeline/file-upload", form: &multipartForm{file: part}})
+	o, err := k.api.call(ctx, &request{method: http.MethodPost, path: "/datasets/pipeline/file-upload", form: &multipartForm{file: part}})
 	if err != nil {
 		return nil, err
 	}

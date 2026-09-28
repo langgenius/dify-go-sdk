@@ -116,7 +116,7 @@ func statusFrom(o object) *IndexingStatus {
 //	doc, err := docs.CreateFromText(ctx, "notes", "…", nil)
 //	docs.WaitUntilIndexed(ctx, doc.Batch, nil)
 type Documents struct {
-	t         *transport
+	api       port
 	datasetID string
 }
 
@@ -195,7 +195,7 @@ func (d *Documents) CreateFromText(ctx context.Context, name, text string, p *Do
 	}
 	body["name"] = firstNonZero(name, "document")
 	body["text"] = text
-	o, err := d.t.call(ctx, &request{method: http.MethodPost, path: d.path("document", "create-by-text"), body: body})
+	o, err := d.api.call(ctx, &request{method: http.MethodPost, path: d.path("document", "create-by-text"), body: body})
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +219,7 @@ func (d *Documents) CreateFromFile(ctx context.Context, file Upload, p *Document
 	if err != nil {
 		return nil, fmt.Errorf("dify: encoding document settings: %w", err)
 	}
-	o, err := d.t.call(ctx, &request{method: http.MethodPost, path: d.path("document", "create-by-file"), form: &multipartForm{fields: map[string]string{"data": string(data)}, file: part}})
+	o, err := d.api.call(ctx, &request{method: http.MethodPost, path: d.path("document", "create-by-file"), form: &multipartForm{fields: map[string]string{"data": string(data)}, file: part}})
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +243,7 @@ func (d *Documents) List(ctx context.Context, p *DocumentListParams) (*Page[*Doc
 	}
 	fetch := func(ctx context.Context, number int) (object, error) {
 		q := params{}.setInt("page", number).setInt("limit", p.Limit).set("keyword", p.Keyword).set("status", p.Status)
-		return d.t.call(ctx, &request{method: http.MethodGet, path: d.path("documents"), query: q.values()})
+		return d.api.call(ctx, &request{method: http.MethodGet, path: d.path("documents"), query: q.values()})
 	}
 	return fetchByPage(ctx, documentFrom, fetch, p.Page)
 }
@@ -290,7 +290,7 @@ func (d *Documents) UpdateFromText(ctx context.Context, documentID, text string,
 	if p.Retrieval != nil {
 		body["retrieval_model"] = p.Retrieval
 	}
-	o, err := d.t.call(ctx, &request{method: http.MethodPost, path: d.path("documents", pathEscape(documentID), "update-by-text"), body: body})
+	o, err := d.api.call(ctx, &request{method: http.MethodPost, path: d.path("documents", pathEscape(documentID), "update-by-text"), body: body})
 	if err != nil {
 		return nil, err
 	}
@@ -343,7 +343,7 @@ func (d *Documents) UpdateFromFile(ctx context.Context, documentID string, file 
 	if err != nil {
 		return nil, fmt.Errorf("dify: encoding document settings: %w", err)
 	}
-	o, err := d.t.call(ctx, &request{method: http.MethodPatch, path: d.path("documents", pathEscape(documentID)), form: &multipartForm{fields: map[string]string{"data": string(data)}, file: part}})
+	o, err := d.api.call(ctx, &request{method: http.MethodPatch, path: d.path("documents", pathEscape(documentID)), form: &multipartForm{fields: map[string]string{"data": string(data)}, file: part}})
 	if err != nil {
 		return nil, err
 	}
@@ -352,7 +352,7 @@ func (d *Documents) UpdateFromFile(ctx context.Context, documentID string, file 
 
 // Retrieve reads one document back, with its current indexing state.
 func (d *Documents) Retrieve(ctx context.Context, documentID string) (*Document, error) {
-	o, err := d.t.call(ctx, &request{method: http.MethodGet, path: d.path("documents", pathEscape(documentID))})
+	o, err := d.api.call(ctx, &request{method: http.MethodGet, path: d.path("documents", pathEscape(documentID))})
 	if err != nil {
 		return nil, err
 	}
@@ -368,7 +368,7 @@ func (d *Documents) Retrieve(ctx context.Context, documentID string) (*Document,
 
 // Delete removes a document and its segments.
 func (d *Documents) Delete(ctx context.Context, documentID string) error {
-	_, err := d.t.call(ctx, &request{method: http.MethodDelete, path: d.path("documents", pathEscape(documentID))})
+	_, err := d.api.call(ctx, &request{method: http.MethodDelete, path: d.path("documents", pathEscape(documentID))})
 	return err
 }
 
@@ -380,7 +380,7 @@ func (d *Documents) IndexingStatus(ctx context.Context, batch string) (*Indexing
 	if batch == "" {
 		return nil, argError("this document carries no indexing batch, so there is nothing to ask about. Dify reports one when a document is created or updated; a document read back from List or Retrieve does not have it.")
 	}
-	o, err := d.t.call(ctx, &request{method: http.MethodGet, path: d.path("documents", pathEscape(batch), "indexing-status")})
+	o, err := d.api.call(ctx, &request{method: http.MethodGet, path: d.path("documents", pathEscape(batch), "indexing-status")})
 	if err != nil {
 		return nil, err
 	}
@@ -458,7 +458,7 @@ const (
 // SetStatus enables, disables, archives or unarchives documents in bulk,
 // without deleting them.
 func (d *Documents) SetStatus(ctx context.Context, documentIDs []string, action DocumentStatus) error {
-	_, err := d.t.call(ctx, &request{method: http.MethodPatch, path: d.path("documents", "status", string(action)), body: map[string]any{"document_ids": documentIDs}})
+	_, err := d.api.call(ctx, &request{method: http.MethodPatch, path: d.path("documents", "status", string(action)), body: map[string]any{"document_ids": documentIDs}})
 	return err
 }
 
@@ -478,7 +478,7 @@ func (d *Documents) SetEnabled(ctx context.Context, documentIDs []string, enable
 // file's bytes. Fetch the URL yourself with a plain HTTP client; it is
 // presigned and needs no Dify credential.
 func (d *Documents) DownloadURL(ctx context.Context, documentID string) (string, error) {
-	o, err := d.t.call(ctx, &request{method: http.MethodGet, path: d.path("documents", pathEscape(documentID), "download")})
+	o, err := d.api.call(ctx, &request{method: http.MethodGet, path: d.path("documents", pathEscape(documentID), "download")})
 	if err != nil {
 		return "", err
 	}
@@ -493,18 +493,18 @@ func (d *Documents) DownloadAll(ctx context.Context, documentIDs []string) ([]by
 	if len(documentIDs) == 0 {
 		return nil, argError("name the documents to download. Dify has no download-everything; List then pass what you want.")
 	}
-	raw, _, err := d.t.bytes(ctx, &request{method: http.MethodPost, path: d.path("documents", "download-zip"), body: map[string]any{"document_ids": documentIDs}})
+	raw, _, err := d.api.bytes(ctx, &request{method: http.MethodPost, path: d.path("documents", "download-zip"), body: map[string]any{"document_ids": documentIDs}})
 	return raw, err
 }
 
 // SetMetadata writes metadata onto documents in bulk. Each operation is
 // {"document_id": ..., "metadata_list": [{"id": ..., "value": ...}, ...]}.
 func (d *Documents) SetMetadata(ctx context.Context, operations []map[string]any) error {
-	_, err := d.t.call(ctx, &request{method: http.MethodPost, path: d.path("documents", "metadata"), body: map[string]any{"operation_data": operations}})
+	_, err := d.api.call(ctx, &request{method: http.MethodPost, path: d.path("documents", "metadata"), body: map[string]any{"operation_data": operations}})
 	return err
 }
 
 // Segments is the chunks of one document.
 func (d *Documents) Segments(documentID string) *Segments {
-	return &Segments{t: d.t, datasetID: d.datasetID, documentID: documentID}
+	return &Segments{api: d.api, datasetID: d.datasetID, documentID: documentID}
 }

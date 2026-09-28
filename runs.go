@@ -21,13 +21,13 @@ type RunParams struct {
 //
 // Create waits for the run and returns it. Stream hands it back as it
 // happens. Retrieve reads one back afterwards, and Stop ends one still going.
-type WorkflowRuns struct{ t *transport }
+type WorkflowRuns struct{ api port }
 
 func (r *WorkflowRuns) prepare(inputs map[string]any, mode string, p *RunParams) (string, map[string]any, error) {
 	if p == nil {
 		p = &RunParams{}
 	}
-	user, err := r.t.who(p.User)
+	user, err := r.api.who(p.User)
 	if err != nil {
 		return "", nil, err
 	}
@@ -51,7 +51,7 @@ func (r *WorkflowRuns) Create(ctx context.Context, inputs map[string]any, p *Run
 	if err != nil {
 		return nil, err
 	}
-	o, err := r.t.call(ctx, &request{method: http.MethodPost, path: path, body: body})
+	o, err := r.api.call(ctx, &request{method: http.MethodPost, path: path, body: body})
 	if err != nil {
 		return nil, err
 	}
@@ -65,11 +65,11 @@ func (r *WorkflowRuns) Stream(ctx context.Context, inputs map[string]any, p *Run
 	if err != nil {
 		return nil, err
 	}
-	resp, _, err := r.t.send(ctx, &request{method: http.MethodPost, path: path, body: body, stream: true})
+	events, err := r.api.stream(ctx, &request{method: http.MethodPost, path: path, body: body})
 	if err != nil {
 		return nil, err
 	}
-	return &WorkflowRunStream{newEventStream(resp.Body, p == nil || !p.KeepErrors)}, nil
+	return &WorkflowRunStream{newEventStream(events, p == nil || !p.KeepErrors)}, nil
 }
 
 // runFromBlocking reads a blocking response, which nests the run under data.
@@ -103,7 +103,7 @@ func runFromBlocking(o object) *WorkflowRun {
 // Retrieve reads a run back by its id. A paused run read this way reports
 // status "paused" and no forms: the tokens were raised on the stream.
 func (r *WorkflowRuns) Retrieve(ctx context.Context, runID string) (*WorkflowRun, error) {
-	o, err := r.t.call(ctx, &request{method: http.MethodGet, path: "/workflows/run/" + pathEscape(runID)})
+	o, err := r.api.call(ctx, &request{method: http.MethodGet, path: "/workflows/run/" + pathEscape(runID)})
 	if err != nil {
 		return nil, err
 	}
@@ -126,22 +126,22 @@ func (r *WorkflowRuns) Events(ctx context.Context, runID string, p *EventsParams
 	if p == nil {
 		p = &EventsParams{}
 	}
-	user, err := r.t.who(p.User)
+	user, err := r.api.who(p.User)
 	if err != nil {
 		return nil, err
 	}
 	q := params{}.set("user", user).setBool("include_state_snapshot", false).setBool("continue_on_pause", p.ResumePaused)
-	resp, _, err := r.t.send(ctx, &request{method: http.MethodGet, path: "/workflow/" + pathEscape(runID) + "/events", query: q.values(), stream: true})
+	events, err := r.api.stream(ctx, &request{method: http.MethodGet, path: "/workflow/" + pathEscape(runID) + "/events", query: q.values()})
 	if err != nil {
 		return nil, err
 	}
-	return &WorkflowRunStream{newEventStream(resp.Body, true)}, nil
+	return &WorkflowRunStream{newEventStream(events, true)}, nil
 }
 
 // Stop stops a run that is still going, by its TaskID — which is not the
 // RunID, and is why a run carries both.
 func (r *WorkflowRuns) Stop(ctx context.Context, taskID, user string) error {
-	return stopTask(ctx, r.t, "/workflows/tasks/", taskID, user, "run")
+	return stopTask(ctx, r.api, "/workflows/tasks/", taskID, user, "run")
 }
 
 // LogParams narrow the run history.
@@ -167,7 +167,7 @@ func (r *WorkflowRuns) Logs(ctx context.Context, p *LogParams) (*Page[map[string
 		for k, v := range p.Filters {
 			q.set(k, v)
 		}
-		return r.t.call(ctx, &request{method: http.MethodGet, path: "/workflows/logs", query: q.values()})
+		return r.api.call(ctx, &request{method: http.MethodGet, path: "/workflows/logs", query: q.values()})
 	}
 	return fetchByPage(ctx, object.raw, fetch, p.Page)
 }

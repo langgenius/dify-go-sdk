@@ -25,13 +25,13 @@ import (
 // both, and a pipeline has no listing of its own, only the dataset rows that
 // carry one.
 type Pipeline struct {
-	t         *transport
+	api       port
 	datasetID string
 }
 
 // call sends, turning "Pipeline not found" into something actionable.
 func (p *Pipeline) call(ctx context.Context, r *request) (object, error) {
-	o, err := p.t.call(ctx, r)
+	o, err := p.api.call(ctx, r)
 	if err != nil {
 		return nil, wrapNoPipeline(p.datasetID, err)
 	}
@@ -205,11 +205,11 @@ func (pl *Pipeline) RunDraft(ctx context.Context, in PipelineRunInput) (*Workflo
 // any other. Streaming a *published* run is not a thing: that one is queued,
 // and Run returns as soon as it is.
 func (pl *Pipeline) StreamDraft(ctx context.Context, in PipelineRunInput) (*WorkflowRunStream, error) {
-	resp, _, err := pl.t.send(ctx, &request{method: http.MethodPost, path: datasetPath(pl.datasetID, "pipeline", "run"), body: in.body(false, "streaming"), stream: true})
+	events, err := pl.api.stream(ctx, &request{method: http.MethodPost, path: datasetPath(pl.datasetID, "pipeline", "run"), body: in.body(false, "streaming")})
 	if err != nil {
 		return nil, wrapNoPipeline(pl.datasetID, err)
 	}
-	return &WorkflowRunStream{newEventStream(resp.Body, true)}, nil
+	return &WorkflowRunStream{newEventStream(events, true)}, nil
 }
 
 // pipelinePart is the part a pipeline upload sends, with the extension Dify

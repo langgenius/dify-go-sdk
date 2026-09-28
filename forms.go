@@ -23,7 +23,7 @@ type Form struct {
 // Waiting is not failing: a run that reaches a human-input node stops, its
 // stream ends, and it resumes when the form comes back. WorkflowRun.Paused
 // says so, and PendingForms carries the token.
-type Forms struct{ t *transport }
+type Forms struct{ api port }
 
 // FormToken picks the token to answer a paused run with — the first of its
 // PendingForms — or explains why there is none.
@@ -51,7 +51,7 @@ func (f *Forms) Retrieve(ctx context.Context, token string) (*Form, error) {
 	if token == "" {
 		return nil, argError("no form token; dify.FormToken(run) picks it from a paused run")
 	}
-	o, err := f.t.call(ctx, &request{method: http.MethodGet, path: "/form/human_input/" + pathEscape(token)})
+	o, err := f.api.call(ctx, &request{method: http.MethodGet, path: "/form/human_input/" + pathEscape(token)})
 	if err != nil {
 		return nil, err
 	}
@@ -74,11 +74,11 @@ func (f *Forms) Submit(ctx context.Context, token string, inputs map[string]any,
 	if token == "" {
 		return argError("no form token; dify.FormToken(run) picks it from a paused run")
 	}
-	who, err := f.t.who(user)
+	who, err := f.api.who(user)
 	if err != nil {
 		return err
 	}
-	_, err = f.t.call(ctx, &request{
+	_, err = f.api.call(ctx, &request{
 		method: http.MethodPost,
 		path:   "/form/human_input/" + pathEscape(token),
 		body:   map[string]any{"inputs": orEmpty(inputs), "action": action, "user": who},

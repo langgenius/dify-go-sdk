@@ -65,7 +65,7 @@ func (timeoutErr) Timeout() bool { return true }
 func TestAFailureBeforeSendingIsRetriedForAnyMethod(t *testing.T) {
 	ft := &failingTransport{}
 	a, _ := NewApp(WithAPIKey("app-x"), WithBaseURL("http://dify.invalid/v1"), WithHTTPClient(&http.Client{Transport: ft}), WithUser("u"))
-	a.t.sleep = func(context.Context, time.Duration) error { return nil }
+	wire(a.api).sleep = func(context.Context, time.Duration) error { return nil }
 
 	_, err := a.Workflows.Runs.Create(context.Background(), nil, nil)
 	if got := ft.calls.Load(); got != 1+DefaultMaxRetries {
@@ -95,7 +95,7 @@ func TestAPostIsNotRetriedOnceItHasBeenSent(t *testing.T) {
 	// This client used to retry it three more times.
 	st := &sentThenTimeout{}
 	a, _ := NewApp(WithAPIKey("app-x"), WithBaseURL("http://dify.invalid/v1"), WithHTTPClient(&http.Client{Transport: st}), WithUser("u"))
-	a.t.sleep = func(context.Context, time.Duration) error { return nil }
+	wire(a.api).sleep = func(context.Context, time.Duration) error { return nil }
 
 	_, err := a.Workflows.Runs.Create(context.Background(), nil, nil)
 	if got := st.calls.Load(); got != 1 {
@@ -113,7 +113,7 @@ func TestAPostIsNotRetriedOnceItHasBeenSent(t *testing.T) {
 func TestASentGetIsRetriedBecauseItIsIdempotent(t *testing.T) {
 	st := &sentThenTimeout{}
 	a, _ := NewApp(WithAPIKey("app-x"), WithBaseURL("http://dify.invalid/v1"), WithHTTPClient(&http.Client{Transport: st}))
-	a.t.sleep = func(context.Context, time.Duration) error { return nil }
+	wire(a.api).sleep = func(context.Context, time.Duration) error { return nil }
 	_, _ = a.Info(context.Background())
 	if got := st.calls.Load(); got != 1+DefaultMaxRetries {
 		t.Errorf("want %d attempts for a GET, got %d", 1+DefaultMaxRetries, got)
@@ -132,7 +132,7 @@ func TestARateLimitIsWaitedOutEvenForAPost(t *testing.T) {
 	})
 	a := f.app(t)
 	var waited []time.Duration
-	a.t.sleep = func(_ context.Context, d time.Duration) error { waited = append(waited, d); return nil }
+	wire(a.api).sleep = func(_ context.Context, d time.Duration) error { waited = append(waited, d); return nil }
 
 	run, err := a.Workflows.Runs.Create(context.Background(), map[string]any{"x": 1}, nil)
 	if err != nil {
@@ -149,7 +149,7 @@ func TestARateLimitLongerThanAMinuteIsReturnedNotWaited(t *testing.T) {
 		writeJSON(w, 429, map[string]any{"message": "maintenance"})
 	})
 	a := f.app(t)
-	a.t.sleep = func(context.Context, time.Duration) error { t.Error("should not wait an hour"); return nil }
+	wire(a.api).sleep = func(context.Context, time.Duration) error { t.Error("should not wait an hour"); return nil }
 
 	_, err := a.Info(context.Background())
 	var apiErr *APIError
@@ -231,7 +231,7 @@ func TestAnExplicitEmptyKeyIsAnErrorNotAFallback(t *testing.T) {
 		t.Errorf("a blank in code is a mistake; got %v", err)
 	}
 	a, err := NewApp()
-	if err != nil || a.t.key.static != "app-from-env" {
+	if err != nil || wire(a.api).key.static != "app-from-env" {
 		t.Errorf("left out, the key comes from the environment: %v", err)
 	}
 }

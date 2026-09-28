@@ -35,7 +35,7 @@ func segmentFrom(o object) *Segment {
 // Segments are the chunks of one document, and the child chunks beneath
 // them.
 type Segments struct {
-	t          *transport
+	api        port
 	datasetID  string
 	documentID string
 }
@@ -61,14 +61,14 @@ func (s *Segments) List(ctx context.Context, p *SegmentListParams) (*Page[*Segme
 	}
 	fetch := func(ctx context.Context, number int) (object, error) {
 		q := params{}.set("keyword", p.Keyword).set("status", p.Status).setInt("page", number).setInt("limit", p.Limit)
-		return s.t.call(ctx, &request{method: http.MethodGet, path: s.path("segments"), query: q.values()})
+		return s.api.call(ctx, &request{method: http.MethodGet, path: s.path("segments"), query: q.values()})
 	}
 	return fetchByPage(ctx, segmentFrom, fetch, p.Page)
 }
 
 // Retrieve reads one segment back.
 func (s *Segments) Retrieve(ctx context.Context, segmentID string) (*Segment, error) {
-	o, err := s.t.call(ctx, &request{method: http.MethodGet, path: s.path("segments", pathEscape(segmentID))})
+	o, err := s.api.call(ctx, &request{method: http.MethodGet, path: s.path("segments", pathEscape(segmentID))})
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func (s *Segments) Retrieve(ctx context.Context, segmentID string) (*Segment, er
 // Create adds segments by hand, rather than letting Dify chunk. Each map is
 // {"content": ..., "answer": ..., "keywords": [...]}.
 func (s *Segments) Create(ctx context.Context, segments []map[string]any) ([]*Segment, error) {
-	o, err := s.t.call(ctx, &request{method: http.MethodPost, path: s.path("segments"), body: map[string]any{"segments": segments}})
+	o, err := s.api.call(ctx, &request{method: http.MethodPost, path: s.path("segments"), body: map[string]any{"segments": segments}})
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func (s *Segments) Create(ctx context.Context, segments []map[string]any) ([]*Se
 // "segment": {...} body — {"content": ..., "answer": ..., "keywords": [...],
 // "enabled": ...}.
 func (s *Segments) Update(ctx context.Context, segmentID string, fields map[string]any) (*Segment, error) {
-	o, err := s.t.call(ctx, &request{method: http.MethodPost, path: s.path("segments", pathEscape(segmentID)), body: map[string]any{"segment": fields}})
+	o, err := s.api.call(ctx, &request{method: http.MethodPost, path: s.path("segments", pathEscape(segmentID)), body: map[string]any{"segment": fields}})
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +106,7 @@ func (s *Segments) Update(ctx context.Context, segmentID string, fields map[stri
 
 // Delete removes one segment.
 func (s *Segments) Delete(ctx context.Context, segmentID string) error {
-	_, err := s.t.call(ctx, &request{method: http.MethodDelete, path: s.path("segments", pathEscape(segmentID))})
+	_, err := s.api.call(ctx, &request{method: http.MethodDelete, path: s.path("segments", pathEscape(segmentID))})
 	return err
 }
 
@@ -128,7 +128,7 @@ func (s *Segments) ChildChunks(ctx context.Context, segmentID string, p *ChildCh
 		p = &ChildChunkListParams{}
 	}
 	q := params{}.setInt("page", firstNonZero(p.Page, 1)).setInt("limit", firstNonZero(p.Limit, 20)).set("keyword", p.Keyword)
-	o, err := s.t.call(ctx, &request{method: http.MethodGet, path: s.path("segments", pathEscape(segmentID), "child_chunks"), query: q.values()})
+	o, err := s.api.call(ctx, &request{method: http.MethodGet, path: s.path("segments", pathEscape(segmentID), "child_chunks"), query: q.values()})
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func (s *Segments) ChildChunks(ctx context.Context, segmentID string, p *ChildCh
 
 // AddChildChunk adds one child chunk.
 func (s *Segments) AddChildChunk(ctx context.Context, segmentID, content string) (map[string]any, error) {
-	o, err := s.t.call(ctx, &request{method: http.MethodPost, path: s.path("segments", pathEscape(segmentID), "child_chunks"), body: map[string]any{"content": content}})
+	o, err := s.api.call(ctx, &request{method: http.MethodPost, path: s.path("segments", pathEscape(segmentID), "child_chunks"), body: map[string]any{"content": content}})
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +146,7 @@ func (s *Segments) AddChildChunk(ctx context.Context, segmentID, content string)
 
 // UpdateChildChunk changes one child chunk's content.
 func (s *Segments) UpdateChildChunk(ctx context.Context, segmentID, chunkID, content string) (map[string]any, error) {
-	o, err := s.t.call(ctx, &request{method: http.MethodPatch, path: s.path("segments", pathEscape(segmentID), "child_chunks", pathEscape(chunkID)), body: map[string]any{"content": content}})
+	o, err := s.api.call(ctx, &request{method: http.MethodPatch, path: s.path("segments", pathEscape(segmentID), "child_chunks", pathEscape(chunkID)), body: map[string]any{"content": content}})
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +155,7 @@ func (s *Segments) UpdateChildChunk(ctx context.Context, segmentID, chunkID, con
 
 // DeleteChildChunk removes one child chunk.
 func (s *Segments) DeleteChildChunk(ctx context.Context, segmentID, chunkID string) error {
-	_, err := s.t.call(ctx, &request{method: http.MethodDelete, path: s.path("segments", pathEscape(segmentID), "child_chunks", pathEscape(chunkID))})
+	_, err := s.api.call(ctx, &request{method: http.MethodDelete, path: s.path("segments", pathEscape(segmentID), "child_chunks", pathEscape(chunkID))})
 	return err
 }
 

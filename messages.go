@@ -32,13 +32,13 @@ type MessageParams struct {
 //
 // Create waits for the whole answer. Stream hands it back as it is written.
 // Both return the thread's ConversationID, which is what continues it.
-type Messages struct{ t *transport }
+type Messages struct{ api port }
 
 func (m *Messages) body(query, mode string, p *MessageParams) (map[string]any, error) {
 	if p == nil {
 		p = &MessageParams{}
 	}
-	user, err := m.t.who(p.User)
+	user, err := m.api.who(p.User)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (m *Messages) Create(ctx context.Context, query string, p *MessageParams) (
 	if err != nil {
 		return nil, err
 	}
-	o, err := m.t.call(ctx, &request{method: http.MethodPost, path: "/chat-messages", body: body})
+	o, err := m.api.call(ctx, &request{method: http.MethodPost, path: "/chat-messages", body: body})
 	if err != nil {
 		return nil, err
 	}
@@ -83,11 +83,11 @@ func (m *Messages) Stream(ctx context.Context, query string, p *MessageParams) (
 	if err != nil {
 		return nil, err
 	}
-	resp, _, err := m.t.send(ctx, &request{method: http.MethodPost, path: "/chat-messages", body: body, stream: true})
+	events, err := m.api.stream(ctx, &request{method: http.MethodPost, path: "/chat-messages", body: body})
 	if err != nil {
 		return nil, err
 	}
-	return &MessageStream{newEventStream(resp.Body, p == nil || !p.KeepErrors)}, nil
+	return &MessageStream{newEventStream(events, p == nil || !p.KeepErrors)}, nil
 }
 
 // messageFromBlocking reads a blocking reply, which is the finished message
@@ -181,14 +181,14 @@ func (m *Messages) List(ctx context.Context, conversationID string, p *HistoryPa
 	if p == nil {
 		p = &HistoryParams{}
 	}
-	user, err := m.t.who(p.User)
+	user, err := m.api.who(p.User)
 	if err != nil {
 		return nil, err
 	}
 	fetch := func(ctx context.Context, cursor string) (object, error) {
 		q := params{}.set("conversation_id", conversationID).set("user", user).
 			set("first_id", firstNonZero(cursor, p.FirstID)).setInt("limit", p.Limit)
-		return m.t.call(ctx, &request{method: http.MethodGet, path: "/messages", query: q.values()})
+		return m.api.call(ctx, &request{method: http.MethodGet, path: "/messages", query: q.values()})
 	}
 	return fetchByCursor(ctx, historyFrom, fetch, oldest)
 }
@@ -196,18 +196,18 @@ func (m *Messages) List(ctx context.Context, conversationID string, p *HistoryPa
 // Stop stops an answer that is still being written, by the TaskID a streamed
 // message carries.
 func (m *Messages) Stop(ctx context.Context, taskID, user string) error {
-	return stopTask(ctx, m.t, "/chat-messages/", taskID, user, "message")
+	return stopTask(ctx, m.api, "/chat-messages/", taskID, user, "message")
 }
 
-func stopTask(ctx context.Context, t *transport, prefix, taskID, user, what string) error {
+func stopTask(ctx context.Context, api port, prefix, taskID, user, what string) error {
 	if taskID == "" {
 		return argError("this %s carries no task_id, so there is nothing to stop; only a streamed %s reports one", what, what)
 	}
-	who, err := t.who(user)
+	who, err := api.who(user)
 	if err != nil {
 		return err
 	}
-	_, err = t.call(ctx, &request{method: http.MethodPost, path: prefix + pathEscape(taskID) + "/stop", body: map[string]any{"user": who}})
+	_, err = api.call(ctx, &request{method: http.MethodPost, path: prefix + pathEscape(taskID) + "/stop", body: map[string]any{"user": who}})
 	return err
 }
 
@@ -232,7 +232,7 @@ func (m *Messages) Feedback(ctx context.Context, messageID string, rating Rating
 	if p == nil {
 		p = &FeedbackParams{}
 	}
-	user, err := m.t.who(p.User)
+	user, err := m.api.who(p.User)
 	if err != nil {
 		return err
 	}
@@ -246,17 +246,17 @@ func (m *Messages) Feedback(ctx context.Context, messageID string, rating Rating
 	if p.Content != "" {
 		body["content"] = p.Content
 	}
-	_, err = m.t.call(ctx, &request{method: http.MethodPost, path: "/messages/" + pathEscape(messageID) + "/feedbacks", body: body})
+	_, err = m.api.call(ctx, &request{method: http.MethodPost, path: "/messages/" + pathEscape(messageID) + "/feedbacks", body: body})
 	return err
 }
 
 // Suggested is what Dify suggests the user might ask next.
 func (m *Messages) Suggested(ctx context.Context, messageID, user string) ([]string, error) {
-	who, err := m.t.who(user)
+	who, err := m.api.who(user)
 	if err != nil {
 		return nil, err
 	}
-	o, err := m.t.call(ctx, &request{method: http.MethodGet, path: "/messages/" + pathEscape(messageID) + "/suggested", query: params{}.set("user", who).values()})
+	o, err := m.api.call(ctx, &request{method: http.MethodGet, path: "/messages/" + pathEscape(messageID) + "/suggested", query: params{}.set("user", who).values()})
 	if err != nil {
 		return nil, err
 	}

@@ -68,7 +68,7 @@ func (f *fakeDify) app(t *testing.T, opts ...Option) *App {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.t.sleep = func(ctx context.Context, d time.Duration) error { return ctx.Err() }
+	wire(a.api).sleep = func(ctx context.Context, d time.Duration) error { return ctx.Err() }
 	return a
 }
 
@@ -85,3 +85,7 @@ func writeSSE(w http.ResponseWriter, events ...map[string]any) {
 		_, _ = w.Write([]byte("data: " + string(b) + "\n\n"))
 	}
 }
+
+// wire is the transport behind a client's port, for tests that change how it
+// waits or read what it holds.
+func wire(api port) *transport { return api.(*transport) }

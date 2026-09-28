@@ -42,7 +42,7 @@ func datasetPath(datasetID string, parts ...string) string {
 }
 
 // Datasets are the workspace's knowledge bases.
-type Datasets struct{ t *transport }
+type Datasets struct{ api port }
 
 // DatasetCreateParams are the optional parts of creating a knowledge base.
 type DatasetCreateParams struct {
@@ -106,7 +106,7 @@ func (d *Datasets) Create(ctx context.Context, name string, p *DatasetCreatePara
 		body["embedding_model_provider"] = provider
 		body["embedding_model"] = model
 	}
-	o, err := d.t.call(ctx, &request{method: http.MethodPost, path: "/datasets", body: body})
+	o, err := d.api.call(ctx, &request{method: http.MethodPost, path: "/datasets", body: body})
 	if err != nil {
 		return nil, err
 	}
@@ -135,14 +135,14 @@ func (d *Datasets) List(ctx context.Context, p *DatasetListParams) (*Page[*Datas
 		for _, id := range p.TagIDs {
 			values.Add("tag_ids", id)
 		}
-		return d.t.call(ctx, &request{method: http.MethodGet, path: "/datasets", query: values})
+		return d.api.call(ctx, &request{method: http.MethodGet, path: "/datasets", query: values})
 	}
 	return fetchByPage(ctx, datasetFrom, fetch, p.Page)
 }
 
 // Retrieve reads one knowledge base back.
 func (d *Datasets) Retrieve(ctx context.Context, datasetID string) (*Dataset, error) {
-	o, err := d.t.call(ctx, &request{method: http.MethodGet, path: datasetPath(datasetID)})
+	o, err := d.api.call(ctx, &request{method: http.MethodGet, path: datasetPath(datasetID)})
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +202,7 @@ func (d *Datasets) Update(ctx context.Context, datasetID string, p *DatasetUpdat
 		body["embedding_model_provider"] = provider
 		body["embedding_model"] = model
 	}
-	o, err := d.t.call(ctx, &request{method: http.MethodPatch, path: datasetPath(datasetID), body: body})
+	o, err := d.api.call(ctx, &request{method: http.MethodPatch, path: datasetPath(datasetID), body: body})
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +213,7 @@ func (d *Datasets) Update(ctx context.Context, datasetID string, p *DatasetUpdat
 // its pipeline if it has one: there is no separate route that deletes a
 // pipeline.
 func (d *Datasets) Delete(ctx context.Context, datasetID string) error {
-	_, err := d.t.call(ctx, &request{method: http.MethodDelete, path: datasetPath(datasetID)})
+	_, err := d.api.call(ctx, &request{method: http.MethodDelete, path: datasetPath(datasetID)})
 	return err
 }
 
@@ -241,7 +241,7 @@ func (d *Datasets) Search(ctx context.Context, datasetID, query string, p *Searc
 			body["external_retrieval_model"] = p.ExternalRetrievalModel
 		}
 	}
-	o, err := d.t.call(ctx, &request{method: http.MethodPost, path: datasetPath(datasetID, "retrieve"), body: body})
+	o, err := d.api.call(ctx, &request{method: http.MethodPost, path: datasetPath(datasetID, "retrieve"), body: body})
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +251,7 @@ func (d *Datasets) Search(ctx context.Context, datasetID, query string, p *Searc
 // Tags is the tags bound to one knowledge base. The other direction —
 // Tags.Bind and Tags.Unbind — lives on the workspace-level Tags resource.
 func (d *Datasets) Tags(ctx context.Context, datasetID string) ([]*Tag, error) {
-	o, err := d.t.call(ctx, &request{method: http.MethodGet, path: datasetPath(datasetID, "tags")})
+	o, err := d.api.call(ctx, &request{method: http.MethodGet, path: datasetPath(datasetID, "tags")})
 	if err != nil {
 		return nil, err
 	}

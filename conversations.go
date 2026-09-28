@@ -31,7 +31,7 @@ func conversationFrom(o object) Conversation {
 }
 
 // Conversations are a user's threads with this app.
-type Conversations struct{ t *transport }
+type Conversations struct{ api port }
 
 // ConversationListParams narrow a user's conversations.
 type ConversationListParams struct {
@@ -50,14 +50,14 @@ func (c *Conversations) List(ctx context.Context, p *ConversationListParams) (*P
 	if p == nil {
 		p = &ConversationListParams{}
 	}
-	user, err := c.t.who(p.User)
+	user, err := c.api.who(p.User)
 	if err != nil {
 		return nil, err
 	}
 	fetch := func(ctx context.Context, cursor string) (object, error) {
 		q := params{}.set("user", user).set("last_id", firstNonZero(cursor, p.LastID)).
 			setInt("limit", p.Limit).set("sort_by", p.SortBy)
-		return c.t.call(ctx, &request{method: http.MethodGet, path: "/conversations", query: q.values()})
+		return c.api.call(ctx, &request{method: http.MethodGet, path: "/conversations", query: q.values()})
 	}
 	return fetchByCursor(ctx, conversationFrom, fetch, newest)
 }
@@ -75,7 +75,7 @@ func (c *Conversations) Rename(ctx context.Context, conversationID, name string,
 	if p == nil {
 		p = &RenameParams{}
 	}
-	user, err := c.t.who(p.User)
+	user, err := c.api.who(p.User)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (c *Conversations) Rename(ctx context.Context, conversationID, name string,
 	if name != "" {
 		body["name"] = name
 	}
-	o, err := c.t.call(ctx, &request{method: http.MethodPost, path: "/conversations/" + pathEscape(conversationID) + "/name", body: body})
+	o, err := c.api.call(ctx, &request{method: http.MethodPost, path: "/conversations/" + pathEscape(conversationID) + "/name", body: body})
 	if err != nil {
 		return nil, err
 	}
@@ -93,11 +93,11 @@ func (c *Conversations) Rename(ctx context.Context, conversationID, name string,
 
 // Delete deletes a thread and its messages.
 func (c *Conversations) Delete(ctx context.Context, conversationID, user string) error {
-	who, err := c.t.who(user)
+	who, err := c.api.who(user)
 	if err != nil {
 		return err
 	}
-	_, err = c.t.call(ctx, &request{method: http.MethodDelete, path: "/conversations/" + pathEscape(conversationID), body: map[string]any{"user": who}})
+	_, err = c.api.call(ctx, &request{method: http.MethodDelete, path: "/conversations/" + pathEscape(conversationID), body: map[string]any{"user": who}})
 	return err
 }
 
@@ -118,14 +118,14 @@ func (c *Conversations) Variables(ctx context.Context, conversationID string, p 
 	if p == nil {
 		p = &VariableParams{}
 	}
-	user, err := c.t.who(p.User)
+	user, err := c.api.who(p.User)
 	if err != nil {
 		return nil, err
 	}
 	fetch := func(ctx context.Context, cursor string) (object, error) {
 		q := params{}.set("user", user).set("last_id", firstNonZero(cursor, p.LastID)).
 			setInt("limit", p.Limit).set("variable_name", p.Name)
-		return c.t.call(ctx, &request{method: http.MethodGet, path: "/conversations/" + pathEscape(conversationID) + "/variables", query: q.values()})
+		return c.api.call(ctx, &request{method: http.MethodGet, path: "/conversations/" + pathEscape(conversationID) + "/variables", query: q.values()})
 	}
 	return fetchByCursor(ctx, object.raw, fetch, newest)
 }
@@ -133,11 +133,11 @@ func (c *Conversations) Variables(ctx context.Context, conversationID string, p 
 // SetVariable changes one variable a thread is carrying — how a caller seeds
 // or corrects a chatflow's memory from outside.
 func (c *Conversations) SetVariable(ctx context.Context, conversationID, variableID string, value any, user string) (map[string]any, error) {
-	who, err := c.t.who(user)
+	who, err := c.api.who(user)
 	if err != nil {
 		return nil, err
 	}
-	o, err := c.t.call(ctx, &request{
+	o, err := c.api.call(ctx, &request{
 		method: http.MethodPut,
 		path:   "/conversations/" + pathEscape(conversationID) + "/variables/" + pathEscape(variableID),
 		body:   map[string]any{"value": value, "user": who},

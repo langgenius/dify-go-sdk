@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 )
 
 // App is one Dify app, addressed by its Service-API key.
@@ -23,7 +22,7 @@ import (
 //
 // An App is safe for concurrent use.
 type App struct {
-	t *transport
+	api port
 
 	Chat        *Chat
 	Workflows   *Workflows
@@ -46,46 +45,11 @@ type Workflows struct {
 	Runs *WorkflowRuns
 }
 
-// NewApp builds a client for one app. The key comes from WithAPIKey, or
-// DIFY_API_KEY; the base URL from WithBaseURL, DIFY_API_BASE_URL, or
-// <DIFY_HOST>/v1. It sends nothing.
-func NewApp(opts ...Option) (*App, error) {
-	t, err := newTransport(opts, EnvAPIKey)
-	if err != nil {
-		return nil, err
-	}
-	return &App{
-		t:           t,
-		Chat:        &Chat{Messages: &Messages{t}, Conversations: &Conversations{t}},
-		Workflows:   &Workflows{Runs: &WorkflowRuns{t}},
-		Completions: &Completions{t},
-		Files:       &Files{t},
-		Annotations: &Annotations{t},
-		Audio:       &Audio{t},
-		Forms:       &Forms{t},
-	}, nil
-}
-
-// OpenApp builds a client and asks Dify what the app is before returning it.
-// Costs one request; worth it when the key comes from configuration and a
-// wrong one should fail here rather than on the first run.
-func OpenApp(ctx context.Context, opts ...Option) (*App, *AppInfo, error) {
-	app, err := NewApp(opts...)
-	if err != nil {
-		return nil, nil, err
-	}
-	info, err := app.Info(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	return app, info, nil
-}
-
 // BaseURL is the Service API root this client sends to.
-func (a *App) BaseURL() string { return a.t.baseURL }
+func (a *App) BaseURL() string { return a.api.endpoint("") }
 
 func (a *App) String() string {
-	return fmt.Sprintf("dify.App(base_url=%q, api_key=%s)", a.t.baseURL, a.t.key)
+	return fmt.Sprintf("dify.App(base_url=%q, api_key=%s)", a.api.endpoint(""), a.api.maskedKey())
 }
 
 // GoString keeps %#v from printing the key.
@@ -112,27 +76,10 @@ func serverInfoFrom(o object) *ServerInfo {
 // reported: /openapi/v1/_version is off unless OPENAPI_ENABLED is set, and
 // /console/api/version reports the latest released version rather than the
 // one you are talking to.
-func (a *App) ServerInfo(ctx context.Context) (*ServerInfo, error) {
-	o, err := a.t.call(ctx, &request{method: http.MethodGet, path: "/", noAuth: true})
-	if err != nil {
-		return nil, err
-	}
-	return serverInfoFrom(o), nil
-}
+func (a *App) ServerInfo(ctx context.Context) (*ServerInfo, error) { return serverInfo(ctx, a.api) }
 
-// Probe asks a Dify what version it is, with no client and no credential —
-// for finding out whether a host is a Dify at all, since an unreachable host
-// and a wrong key look the same once authenticated calls start. baseURL is
-// the Service API root; empty resolves it the way NewApp does.
-func Probe(ctx context.Context, baseURL string) (*ServerInfo, error) {
-	t := &transport{
-		baseURL: resolveBaseURL(baseURL),
-		http:    &http.Client{},
-		timeout: 5 * time.Second,
-		logger:  newDiscardLogger(),
-		sleep:   sleepCtx,
-	}
-	o, err := t.call(ctx, &request{method: http.MethodGet, path: "/", noAuth: true})
+func serverInfo(ctx context.Context, api port) (*ServerInfo, error) {
+	o, err := api.call(ctx, &request{method: http.MethodGet, path: "/", noAuth: true})
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +110,7 @@ func (i *AppInfo) IsWorkflow() bool { return i.Mode == "workflow" }
 
 // Info is what this app is: its name, and the mode that decides its routes.
 func (a *App) Info(ctx context.Context) (*AppInfo, error) {
-	o, err := a.t.call(ctx, &request{method: http.MethodGet, path: "/info"})
+	o, err := a.api.call(ctx, &request{method: http.MethodGet, path: "/info"})
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +218,7 @@ func inputField(entry object) (InputField, bool) {
 
 // Parameters is the app's declared inputs, features and limits.
 func (a *App) Parameters(ctx context.Context, user string) (*AppParameters, error) {
-	o, err := a.t.call(ctx, &request{method: http.MethodGet, path: "/parameters", query: params{}.set("user", a.userOr(user)).values()})
+	o, err := a.api.call(ctx, &request{method: http.MethodGet, path: "/parameters", query: params{}.set("user", a.userOr(user)).values()})
 	if err != nil {
 		return nil, err
 	}
@@ -301,13 +248,16 @@ func (a *App) Parameters(ctx context.Context, user string) (*AppParameters, erro
 // userOr is the user to name on a read that wants one but does not act for
 // anyone in particular.
 func (a *App) userOr(user string) string {
-	return firstNonZero(user, firstNonZero(a.t.user, "dify-go-sdk"))
+	if who, err := a.api.who(user); err == nil {
+		return who
+	}
+	return "dify-go-sdk"
 }
 
 // Meta is the app's tool icons and other display metadata. Left a map: its
 // shape is open-ended and keeps growing.
 func (a *App) Meta(ctx context.Context, user string) (map[string]any, error) {
-	o, err := a.t.call(ctx, &request{method: http.MethodGet, path: "/meta", query: params{}.set("user", a.userOr(user)).values()})
+	o, err := a.api.call(ctx, &request{method: http.MethodGet, path: "/meta", query: params{}.set("user", a.userOr(user)).values()})
 	return o.raw(), err
 }
 
@@ -334,7 +284,7 @@ type SiteSettings struct {
 
 // Site is the WebApp settings: title, icon, theme, what visitors may do.
 func (a *App) Site(ctx context.Context) (*SiteSettings, error) {
-	o, err := a.t.call(ctx, &request{method: http.MethodGet, path: "/site"})
+	o, err := a.api.call(ctx, &request{method: http.MethodGet, path: "/site"})
 	if err != nil {
 		return nil, err
 	}
@@ -371,7 +321,7 @@ func (a *App) Feedbacks(ctx context.Context, p *PageParams) (*Page[map[string]an
 		p = &PageParams{}
 	}
 	fetch := func(ctx context.Context, number int) (object, error) {
-		return a.t.call(ctx, &request{method: http.MethodGet, path: "/app/feedbacks", query: params{}.setInt("page", number).setInt("limit", p.Limit).values()})
+		return a.api.call(ctx, &request{method: http.MethodGet, path: "/app/feedbacks", query: params{}.setInt("page", number).setInt("limit", p.Limit).values()})
 	}
 	return fetchByPage(ctx, object.raw, fetch, p.Page)
 }
@@ -380,6 +330,6 @@ func (a *App) Feedbacks(ctx context.Context, p *PageParams) (*Page[map[string]an
 // created_by on an uploaded file is one, and means nothing until resolved.
 // Scoped to this app, so an id from elsewhere is not found.
 func (a *App) EndUser(ctx context.Context, endUserID string) (map[string]any, error) {
-	o, err := a.t.call(ctx, &request{method: http.MethodGet, path: "/end-users/" + pathEscape(endUserID)})
+	o, err := a.api.call(ctx, &request{method: http.MethodGet, path: "/end-users/" + pathEscape(endUserID)})
 	return o.raw(), err
 }

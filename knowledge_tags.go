@@ -50,7 +50,7 @@ func tagFrom(o object) *Tag {
 // Workspace-level, not per-dataset: a tag exists once and is bound to as
 // many knowledge bases as you like. Datasets.Tags reads the other
 // direction — which tags one base carries.
-type Tags struct{ t *transport }
+type Tags struct{ api port }
 
 // List lists every tag in the workspace.
 //
@@ -58,7 +58,7 @@ type Tags struct{ t *transport }
 // holds the lot — still a Page, so a caller need not know which listings
 // page and which do not.
 func (tg *Tags) List(ctx context.Context) (*Page[*Tag], error) {
-	o, err := tg.t.call(ctx, &request{method: http.MethodGet, path: "/datasets/tags"})
+	o, err := tg.api.call(ctx, &request{method: http.MethodGet, path: "/datasets/tags"})
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func (tg *Tags) List(ctx context.Context) (*Page[*Tag], error) {
 
 // Create adds a tag.
 func (tg *Tags) Create(ctx context.Context, name string) (*Tag, error) {
-	o, err := tg.t.call(ctx, &request{method: http.MethodPost, path: "/datasets/tags", body: map[string]any{"name": name, "type": "knowledge"}})
+	o, err := tg.api.call(ctx, &request{method: http.MethodPost, path: "/datasets/tags", body: map[string]any{"name": name, "type": "knowledge"}})
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func (tg *Tags) Create(ctx context.Context, name string) (*Tag, error) {
 
 // Rename changes a tag's name. Its bindings are kept.
 func (tg *Tags) Rename(ctx context.Context, tagID, name string) (*Tag, error) {
-	o, err := tg.t.call(ctx, &request{method: http.MethodPatch, path: "/datasets/tags", body: map[string]any{"tag_id": tagID, "name": name}})
+	o, err := tg.api.call(ctx, &request{method: http.MethodPatch, path: "/datasets/tags", body: map[string]any{"tag_id": tagID, "name": name}})
 	if err != nil {
 		return nil, err
 	}
@@ -85,13 +85,13 @@ func (tg *Tags) Rename(ctx context.Context, tagID, name string) (*Tag, error) {
 
 // Delete removes a tag from the workspace, and from everything it was on.
 func (tg *Tags) Delete(ctx context.Context, tagID string) error {
-	_, err := tg.t.call(ctx, &request{method: http.MethodDelete, path: "/datasets/tags", body: map[string]any{"tag_id": tagID}})
+	_, err := tg.api.call(ctx, &request{method: http.MethodDelete, path: "/datasets/tags", body: map[string]any{"tag_id": tagID}})
 	return err
 }
 
 // Bind puts these tags on a knowledge base.
 func (tg *Tags) Bind(ctx context.Context, datasetID string, tagIDs []string) error {
-	_, err := tg.t.call(ctx, &request{method: http.MethodPost, path: "/datasets/tags/binding", body: map[string]any{"tag_ids": tagIDs, "target_id": datasetID}})
+	_, err := tg.api.call(ctx, &request{method: http.MethodPost, path: "/datasets/tags/binding", body: map[string]any{"tag_ids": tagIDs, "target_id": datasetID}})
 	return err
 }
 
@@ -104,6 +104,6 @@ func (tg *Tags) Unbind(ctx context.Context, datasetID string, tagIDs ...string) 
 	if len(tagIDs) == 0 {
 		return argError("name at least one tag to unbind")
 	}
-	_, err := tg.t.call(ctx, &request{method: http.MethodPost, path: "/datasets/tags/unbinding", body: map[string]any{"tag_ids": tagIDs, "target_id": datasetID}})
+	_, err := tg.api.call(ctx, &request{method: http.MethodPost, path: "/datasets/tags/unbinding", body: map[string]any{"tag_ids": tagIDs, "target_id": datasetID}})
 	return err
 }
