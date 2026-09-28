@@ -30,7 +30,7 @@ func TestLiveTheDeployedWorkflowIsListedFoundByNameAndExported(t *testing.T) {
 	}
 }
 
-func TestLiveAKeyIsShownOnceAndMaskedWhenListed(t *testing.T) {
+func TestLiveAMintedKeyIsListedAndCanBeRevoked(t *testing.T) {
 	requireLive(t)
 	ctx, m := liveCtx(t), live.management
 	key, err := m.Apps.Keys.Create(ctx, live.workflowID)
