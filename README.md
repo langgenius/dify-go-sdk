@@ -1,9 +1,16 @@
 # dify-go-sdk
 
-A Go client for Dify's Service API — running apps, and managing knowledge
-bases. A port of the Service-API half of
+[![Go Reference](https://pkg.go.dev/badge/github.com/langgenius/dify-go-sdk.svg)](https://pkg.go.dev/github.com/langgenius/dify-go-sdk)
+[![CI](https://github.com/langgenius/dify-go-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/langgenius/dify-go-sdk/actions/workflows/ci.yml)
+
+A Go client for [Dify](https://github.com/langgenius/dify) — running apps and
+managing knowledge bases through the Service API, and deploying apps through
+the console API. A port of the "using Dify" half of
 [dify-python-sdk](https://github.com/langgenius/dify-python-sdk), verified
 against Dify 1.17.1. Go 1.24+, no dependencies beyond the standard library.
+
+The API may still change between 0.x releases; [CHANGELOG.md](CHANGELOG.md)
+says what did.
 
 ```bash
 go get github.com/langgenius/dify-go-sdk
@@ -247,10 +254,19 @@ engine) — Management deploys DSL text — and `OpenApiClient`.
 
 ```bash
 go test -race ./...                         # offline
-set -a; . ./.env; set +a                    # DIFY_HOST, DIFY_CONSOLE_EMAIL, DIFY_CONSOLE_PASSWORD
-go test -run Live -v ./...                  # against a running Dify
+export DIFY_HOST=… DIFY_CONSOLE_EMAIL=… DIFY_CONSOLE_PASSWORD=…
+go test -run Live -v ./tests                # against a running Dify
 ```
 
 The live harness creates its apps and a dataset key through the console,
 runs template-only workflows (no model cost), and deletes everything
-afterwards. See [AGENTS.md](AGENTS.md).
+afterwards. See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
+
+## Security
+
+Report vulnerabilities privately, as [SECURITY.md](SECURITY.md) describes —
+not in a public issue.
+
+## License
+
+[MIT](LICENSE)
