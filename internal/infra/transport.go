@@ -107,6 +107,9 @@ type Transport struct {
 	logger     *slog.Logger
 	// session is set for a console client, and replaces Key.
 	session *session
+	// serviceBase is the Service API root beside a console client, for the
+	// apps it hands back.
+	serviceBase string
 	// Sleep waits between attempts. A field so tests do not wait.
 	Sleep func(ctx context.Context, d time.Duration) error
 }

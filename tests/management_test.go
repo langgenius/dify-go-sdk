@@ -609,3 +609,101 @@ func TestASessionThatCannotBeRenewedSaysSoWithoutSendingAgain(t *testing.T) {
 		t.Errorf("the error should say the renewal failed and why: %v", err)
 	}
 }
+
+func TestAnAppDeployedToDifyCloudIsCalledOnCloudsServiceAPI(t *testing.T) {
+	// Cloud's console is cloud.dify.ai and its Service API api.dify.ai, so
+	// swapping the console path for /v1 sent deployed apps to a host that
+	// does not serve them.
+	t.Setenv(dify.EnvHost, "")
+	t.Setenv(dify.EnvAPIBaseURL, "")
+	m, err := dify.NewManagement(dify.WithConsoleToken("t"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, _ := m.AppClient("app-k", "alice")
+	if app.BaseURL() != dify.DefaultBaseURL {
+		t.Errorf("Cloud's apps went to %s", app.BaseURL())
+	}
+}
+
+func TestAServiceAPIThatIsNotAtHostV1IsFoundWhereTheEnvironmentSays(t *testing.T) {
+	t.Setenv(dify.EnvAPIBaseURL, "https://api.example.com/dify/v1/")
+	m, err := dify.NewManagement(dify.WithHost("https://console.example.com"), dify.WithConsoleToken("t"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, _ := m.AppClient("app-k", "alice")
+	if app.BaseURL() != "https://api.example.com/dify/v1" {
+		t.Errorf("got %s", app.BaseURL())
+	}
+}
+
+func TestASessionFromADifyBefore117IsRenewedThroughTheBody(t *testing.T) {
+	// Before 1.17 the tokens travelled in JSON bodies, both ways. A refresh
+	// that sent the token only as a cookie and read the answer only from
+	// Set-Cookie failed an hour into every session.
+	f := newFakeDify(t, routes{
+		"POST /login": answer(200, map[string]any{"result": "success", "data": map[string]any{"access_token": "old", "refresh_token": "r1"}}),
+		"POST /refresh-token": func(w http.ResponseWriter, r *http.Request) {
+			if b := decodeBody(r); b["refresh_token"] != "r1" {
+				writeJSON(w, 401, map[string]any{"message": "no refresh token in the body"})
+				return
+			}
+			writeJSON(w, 200, map[string]any{"result": "success", "data": map[string]any{"access_token": "new", "refresh_token": "r2"}})
+		},
+		"GET /apps": func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") != "Bearer new" {
+				writeJSON(w, 401, map[string]any{"message": "Token has expired."})
+				return
+			}
+			writeJSON(w, 200, map[string]any{"data": []any{}})
+		},
+	}.serve)
+	m, err := dify.LoginManagement(context.Background(), "ops@example.com", "pw", dify.WithHost(f.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Apps.List(context.Background(), nil); err != nil {
+		t.Fatalf("the session should have been renewed through the body: %v", err)
+	}
+}
+
+func TestPluginsAreWalkedPastAFullPageWhenDifyReportsNoTotal(t *testing.T) {
+	// A missing total once read as zero, ending the walk after 256 plugins
+	// and reporting the rest as not installed.
+	f := newFakeDify(t, routes{
+		"GET /workspaces/current/plugin/list": func(w http.ResponseWriter, r *http.Request) {
+			n := 256
+			if r.URL.Query().Get("page") == "2" {
+				n = 1
+			}
+			plugins := make([]any, n)
+			for i := range plugins {
+				plugins[i] = map[string]any{"plugin_id": fmt.Sprintf("p%s-%d", r.URL.Query().Get("page"), i), "plugin_unique_identifier": "x"}
+			}
+			writeJSON(w, 200, map[string]any{"plugins": plugins})
+		},
+	}.serve)
+	plugins, err := f.management(t).Tools.Plugins(context.Background())
+	if err != nil || len(plugins) != 257 {
+		t.Errorf("got %d plugins, %v", len(plugins), err)
+	}
+}
+
+func TestOpeningAWorkflowThatWasNeverPublishedDoesNotReportItRunnable(t *testing.T) {
+	f := newFakeDify(t, routes{
+		"GET /apps/" + appUUID:                        answer(200, map[string]any{"id": appUUID, "name": "draft-only", "mode": "workflow"}),
+		"GET /apps/" + appUUID + "/workflows/publish": func(w http.ResponseWriter, r *http.Request) { writeRaw(w, 200, "null") },
+		"POST /apps/" + appUUID + "/api-keys":         answer(201, map[string]any{"id": "k", "token": "app-k"}),
+	}.serve)
+	app, err := f.management(t).Apps.Open(context.Background(), appUUID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.Deployment.Published || app.Deployment.Stage() != dify.StageDrafted {
+		t.Errorf("a draft-only workflow read as %s", app.Deployment.Stage())
+	}
+	if err := app.Deployment.Err(dify.StageRunnable); err == nil {
+		t.Error("a draft-only workflow cannot be run through the Service API")
+	}
+}

@@ -334,9 +334,15 @@ func (tl *Tools) Plugins(ctx context.Context) ([]*entity.Plugin, error) {
 		}
 		plugins := codec.PluginsFrom(o)
 		out = append(out, plugins...)
-		// Dify reports a total; a short page is the end whether or not it did.
-		if len(plugins) < pageSize || len(out) >= codec.PluginTotal(o) || len(out) >= codec.MaxWalk {
+		// A short page is the end, and so is reaching the total when Dify
+		// reports one. A missing total is not a total of zero: reading it as
+		// one stopped the walk after the first full page.
+		total, reported := codec.PluginTotal(o)
+		if len(plugins) < pageSize || (reported && len(out) >= total) {
 			return out, nil
+		}
+		if len(out) >= codec.MaxWalk {
+			return out, &codec.PageLimitError{Limit: codec.MaxWalk}
 		}
 	}
 }

@@ -257,8 +257,13 @@ func ConfiguredProvidersFrom(o kernel.Object) []*entity.ModelProvider {
 	return out
 }
 
-// PluginTotal is how many plugins Dify says are installed.
-func PluginTotal(o kernel.Object) int { return o.Int("total") }
+// PluginTotal is how many plugins Dify says are installed, and false when it
+// did not say.
+func PluginTotal(o kernel.Object) (int, bool) { return o.Int("total"), o.Has("total") }
+
+// PublishedWorkflowFrom reads whether an app has a published workflow: Dify
+// answers the draft-only case with null.
+func PublishedWorkflowFrom(o kernel.Object) bool { return o.Str("id") != "" }
 
 // ToolsListedWith is the tools a provider listing carried inline, which some
 // providers do and others leave to a route of their own.

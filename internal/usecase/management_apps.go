@@ -112,6 +112,10 @@ func (a *Apps) Open(ctx context.Context, nameOrID, apiKey string) (*ManagedApp, 
 	if err != nil {
 		return nil, err
 	}
+	published, err := a.published(ctx, found)
+	if err != nil {
+		return nil, err
+	}
 	if apiKey == "" {
 		key, err := a.Keys.Create(ctx, found.ID)
 		if err != nil {
@@ -119,7 +123,36 @@ func (a *Apps) Open(ctx context.Context, nameOrID, apiKey string) (*ManagedApp, 
 		}
 		apiKey = key.Token
 	}
-	return &ManagedApp{m: a.m, Deployment: entity.Deployment{Imported: true, Published: true, AppID: found.ID, AppMode: found.Mode, APIKey: apiKey}}, nil
+	return &ManagedApp{m: a.m, Deployment: entity.Deployment{Imported: true, Published: published, AppID: found.ID, AppMode: found.Mode, APIKey: apiKey}}, nil
+}
+
+// published is whether an app that exists has a version the Service API
+// runs. An app that exists is not therefore live: a workflow imported and
+// never published answers every run with "workflow not published", and
+// reporting it runnable is how that surprise reaches the caller.
+func (a *Apps) published(ctx context.Context, app *entity.AppSummary) (bool, error) {
+	switch app.Mode {
+	case "workflow", "advanced-chat":
+		o, err := a.api.Call(ctx, &port.Request{Method: http.MethodGet, Path: "/apps/" + port.PathEscape(app.ID) + "/workflows/publish"})
+		if err != nil {
+			return false, err
+		}
+		return codec.PublishedWorkflowFrom(o), nil
+	case "agent":
+		agents, err := a.m.Agents.List(ctx)
+		if err != nil {
+			return false, err
+		}
+		for _, ag := range agents {
+			if ag.AppID == app.ID {
+				return ag.Published, nil
+			}
+		}
+		return false, nil
+	}
+	// Chat, completion and agent-chat apps keep their configuration on the
+	// app, and are live as they stand.
+	return true, nil
 }
 
 // Export is an app's DSL, as the console's Export button writes it. Secrets

@@ -173,3 +173,15 @@ func TestLiveADatasetKeyIsListedMasked(t *testing.T) {
 		}
 	}
 }
+
+func TestLiveOpeningAPublishedWorkflowReportsItPublished(t *testing.T) {
+	requireLive(t)
+	// A key is passed so that opening mints none: an app holds ten.
+	app, err := live.management.Apps.Open(liveCtx(t), live.workflowID, live.workflowKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !app.Deployment.Published || app.Deployment.Err(dify.StageRunnable) != nil {
+		t.Errorf("the harness workflow is published, got %s", app.Deployment.Stage())
+	}
+}

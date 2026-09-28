@@ -1,8 +1,10 @@
 package infra
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -233,14 +235,16 @@ func consoleTransport(c config) *Transport {
 	if logger == nil {
 		logger = newDiscardLogger()
 	}
+	host := ResolveHost(c.host)
 	return &Transport{
-		baseURL:    ResolveHost(c.host) + "/console/api",
-		http:       h,
-		timeout:    c.timeout,
-		maxRetries: c.maxRetries,
-		retryDelay: c.retryDelay,
-		logger:     logger,
-		Sleep:      kernel.SleepCtx,
+		baseURL:     host + "/console/api",
+		serviceBase: serviceBaseFor(host),
+		http:        h,
+		timeout:     c.timeout,
+		maxRetries:  c.maxRetries,
+		retryDelay:  c.retryDelay,
+		logger:      logger,
+		Sleep:       kernel.SleepCtx,
 	}
 }
 
@@ -257,8 +261,22 @@ func ResolveHost(explicit string) string {
 
 // ServiceBaseURL is the Service API root on the same Dify as this console
 // transport, for handing a deployed app's key to an App client.
-func (t *Transport) ServiceBaseURL() string {
-	return strings.TrimSuffix(t.baseURL, "/console/api") + "/v1"
+func (t *Transport) ServiceBaseURL() string { return t.serviceBase }
+
+// serviceBaseFor is where the Service API sits beside a console host.
+// DIFY_API_BASE_URL wins, as it does for NewApp: it is the setting for a Dify
+// whose Service API is not at <host>/v1. Dify Cloud is one — its console is
+// cloud.dify.ai and its Service API api.dify.ai — so replacing the console
+// path would send every deployed app's calls to a host that does not serve
+// them.
+func serviceBaseFor(host string) string {
+	if v := os.Getenv(EnvAPIBaseURL); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	if host == DefaultConsoleHost {
+		return DefaultBaseURL
+	}
+	return host + "/v1"
 }
 
 // refresh renews the session with its refresh token. seen is the access token
@@ -279,11 +297,15 @@ func (t *Transport) refresh(ctx context.Context, seen string) error {
 		rctx, cancel = context.WithTimeout(ctx, t.timeout)
 	}
 	defer cancel()
-	req, err := http.NewRequestWithContext(rctx, http.MethodPost, t.baseURL+"/refresh-token", nil)
+	// Since 1.17 Dify reads the refresh token from its cookie and nowhere
+	// else; before, from the JSON body. Both are sent, since which one this
+	// Dify is cannot be told from here, and each ignores the other.
+	body, _ := json.Marshal(map[string]string{"refresh_token": s.refresh})
+	req, err := http.NewRequestWithContext(rctx, http.MethodPost, t.baseURL+"/refresh-token", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
-	// The refresh token is read from its cookie and nowhere else.
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Cookie", s.refreshName+"="+s.refresh)
 	req.Header.Set("User-Agent", UserAgent())
 	resp, err := t.http.Do(req)
@@ -291,12 +313,24 @@ func (t *Transport) refresh(ctx context.Context, seen string) error {
 		return err
 	}
 	defer drain(resp)
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 		return fmt.Errorf("refresh answered %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 	before := s.access
 	s.take(resp.Cookies())
+	if s.access == before {
+		// Before 1.17 the renewed pair came back in the body, as a login's did.
+		if o, err := decodeObject(raw); err == nil {
+			data := o.Obj("data")
+			if token := data.Str("access_token"); token != "" {
+				s.access = token
+			}
+			if token := data.Str("refresh_token"); token != "" {
+				s.refresh = token
+			}
+		}
+	}
 	if s.access == before {
 		return fmt.Errorf("refresh answered without a new access token")
 	}
